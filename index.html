@@ -4,6 +4,38 @@
     <p>This is a paragraph.</p>
 <p>This is another paragraph.</p>
   
-I am a PhD student of Purple Mountian Observatory
+I am a PhD student of Purple Mountian Observatory.
+
+1. CCD astronomy
+2. Transient astronomy
+3. Photometry
+
+First Thing,
+some building techinques of DAOPhot software.
+<br>
+<code>
+    import os,sys,tempfile,shutil,subprocess,scipy <br>
+    import numpy as np <br>
+    import scipy.stats.stats as scstats<br>
+    from scipy import optimize<br>
+    from glob import glob as g<br>
+    import matplotlib.pyplot as plt<br>
+    import matplotlib<br>
+    matplotlib.style.use('ggplot')<br>
+    #from astroquery.vizier import Vizier<br>
+    from astropy.table import *<br>
+    from subprocess import call <br>
+    from astropy import units as u<br>
+    from astropy import stats<br>
+    from astropy.io import fits
+    from astropy.wcs import WCS<br>
+    from scipy.spatial import cKDTree<br>
+    from astropy.units import Quantity<br>
+    from astropy.coordinates import SkyCoord,Angle<br>
+    from astropy.coordinates.sky_coordinate import SkyCoord
+    from astropy.coordinates import match_coordinates_sky<br>
+    from astropy.stats import sigma_clip<br>
+    from astropy.stats import median_absolute_deviation<br>
+</code>
 </html>
 
