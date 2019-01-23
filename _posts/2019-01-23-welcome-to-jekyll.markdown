@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  "能否实现GCN消息的网页推送呢"
+title:  "明天的任务之一是把GCN自动推送到网站上"
 date:   2019-01-23 19:34:47 +0800
 categories: jekyll update
 ---
