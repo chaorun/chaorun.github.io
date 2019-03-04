@@ -2,7 +2,7 @@
 layout: post
 title:  "LVC MS190304e_2 Notice"
 date:   2019-03-04 05:30:50 +0800
-categories: Chaorun update
+categories: jekyll update
 ---
 Packet_Type          : 151 
 Packet_Type          : LVC_INITIAL 
