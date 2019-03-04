@@ -1,7 +1,7 @@
 ---
 layout: post
 title:  "LVC MS190304e_2 Notice"
-date:   2019-03-04 05:30:50.320205 +0800
+date:   2019-03-04 05:30:50 +0800
 categories: Chaorun update
 ---
 Packet_Type          : 151 
