@@ -1,0 +1,52 @@
+---
+layout: post
+title:  LVC Trigger MS190322m_1
+date:   2019-03-22 12:42:16 +0000
+categories: LVC Triggers
+---
+{% highlight ruby %}Attention!!!
+This Email sent by Tianrui from LVC TEST Trigger
+
+
+Packet_Type          : 150 
+Packet_Type          : LVC_PRELIM 
+internal             : 0 
+Pkt_Ser_Num          : 1 
+GraceID              : MS190322m 
+AlertType            : Preliminary 
+HardwareInj          : 0 
+OpenAlert            : 1 
+EventPage            : https://gracedb.ligo.org/superevents/MS190322m/view/ 
+Instruments          : H1,L1 
+FAR                  : 9.11069936486e-14 
+Group                : CBC 
+Pipeline             : gstlal 
+Search               : MDC 
+---------bayestar----------
+skymap_fits          : https://gracedb.ligo.org/api/superevents/MS190322m/files/bayestar.fits.gz 
+---------None----------
+BNS                  : 0.998621546161 
+NSBH                 : 0.0 
+BBH                  : 0.0 
+MassGap              : 0.0 
+Terrestrial          : 0.0013784538385 
+Distance             : 140.3269 
+DistSig              : 46.2774 
+---------Process HealPix----------
+Total Galaxies       : 1719 
+GalaxiesCandSaved    : LVC_MS190322m_1_GalaxiesCandidates.fits 
+---------Process Observing----------
+***************************************
+NowProcessing        : ChinaNearEarthObjectSurveyTelescope 
+Good Galaxies        : 1719 
+Got Skys             : 0 
+Gal Saved            : CNEOST_LVC_GalaxiesCand_MS190322m_85650261.csv 
+PNG Saved            : CNEOST_LVC_NotOBS_PointSeq_MS190322m_85650261.png 
+Point Saved          : CNEOST_LVC_NotOBS_PointSeq_MS190322m_85650261.csv 
+Telescope TsinghuaNAOCTelescope ExecuteStatus False 
+Telescope Yao An 80cm ExecuteStatus True 
+Telescope Mc Donald HET ExecuteStatus False 
+Telescope WhuCar ExecuteStatus False 
+Telescope ZHUHAI Astronomers ExecuteStatus False 
+
+{% endhighlight %}
