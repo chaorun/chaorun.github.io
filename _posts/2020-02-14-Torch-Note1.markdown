@@ -1,0 +1,1334 @@
+---
+layout: post
+title:  "Torch Linear"
+date:   2020-02-14 10:34:47 +0800
+categories: jekyll update
+---
+课程笔记
+
+
+```python
+#线性回归
+```
+
+
+```python
+%matplotlib nbagg
+from __future__ import print_function, division
+import torch
+from IPython import display
+from matplotlib import pyplot as plt
+import numpy as np
+import random
+```
+
+
+```python
+num_inputs = 2
+num_examples = 1000
+true_w = [2, -3.4]
+true_b = 4.2
+features = torch.randn(num_examples, num_inputs,
+                       dtype=torch.float32)
+labels = true_w[0] * features[:, 0] + true_w[1] * features[:, 1] + true_b
+labels += torch.tensor(np.random.normal(0, 0.01, size=labels.size()),
+                       dtype=torch.float32)
+```
+
+
+```python
+
+```
+
+
+```python
+print(features[0], labels[0])
+```
+
+    tensor([-0.2368,  1.4790]) tensor(-1.3003)
+
+
+
+```python
+def use_svg_display():
+    # 用矢量图显示
+    display.set_matplotlib_formats('svg')
+
+def set_figsize(figsize=(3.5, 2.5)):
+    use_svg_display()
+    # 设置图的尺寸
+    plt.rcParams['figure.figsize'] = figsize
+
+# # 在../d2lzh_pytorch里面添加上面两个函数后就可以这样导入
+# import sys
+# sys.path.append("..")
+# from d2lzh_pytorch import * 
+
+set_figsize()
+plt.scatter(features[:, 1].numpy(), labels.numpy(), 1);
+plt.show()
+```
+
+```python
+# 本函数已保存在d2lzh包中方便以后使用
+def data_iter(batch_size, features, labels):
+    num_examples = len(features)
+    indices = list(range(num_examples))
+    random.shuffle(indices)  # 样本的读取顺序是随机的
+    for i in range(0, num_examples, batch_size):
+        j = torch.LongTensor(indices[i: min(i + batch_size, num_examples)]) # 最后一次可能不足一个batch
+        yield  features.index_select(0, j), labels.index_select(0, j)
+def linreg(X, w, b):  # 本函数已保存在d2lzh_pytorch包中方便以后使用
+    return torch.mm(X, w) + b
+#Performs a matrix multiplication of the matrices
+
+
+def squared_loss(y_hat, y):  # 本函数已保存在d2lzh_pytorch包中方便以后使用
+    # 注意这里返回的是向量, 另外, pytorch里的MSELoss并没有除以 2
+    return (y_hat - y.view(y_hat.size())) ** 2 / 2
+
+def sgd(params, lr, batch_size):  # 本函数已保存在d2lzh_pytorch包中方便以后使用
+    for param in params:
+        param.data -= lr * param.grad / batch_size # 注意这里更改param时用的param.data
+```
+
+
+```python
+batch_size = 10
+
+for X, y in data_iter(batch_size, features, labels):
+    print(X, y)
+    break
+```
+
+    tensor([[-0.3513,  0.7561],
+            [ 0.3961, -0.0920],
+            [-1.2184,  0.1623],
+            [ 1.4052,  1.6383],
+            [ 0.8815, -1.6394],
+            [-0.3908,  0.8612],
+            [ 2.0732, -0.4766],
+            [ 0.6000, -0.3341],
+            [ 0.6602, -0.7155],
+            [-0.4657, -0.1234]]) tensor([ 0.9471,  5.3013,  1.2147,  1.4539, 11.5369,  0.4846,  9.9688,  6.5471,
+             7.9466,  3.6844])
+
+
+
+```python
+w = torch.tensor(np.random.normal(0, 0.01, (num_inputs, 1)), dtype=torch.float32)
+b = torch.zeros(1, dtype=torch.float32)
+```
+
+
+```python
+w
+```
+
+
+
+
+    tensor([[-0.0074],
+            [ 0.0129]])
+
+
+
+
+```python
+w
+```
+
+
+
+
+    tensor([[-0.0074],
+            [ 0.0129]])
+
+
+
+#之后的模型训练中，需要对这些参数求梯度来迭代参数的值，因此我们要让它们的requires_grad=True。
+
+
+```python
+w.requires_grad_(requires_grad=True)
+```
+
+
+
+
+    tensor([[-0.0074],
+            [ 0.0129]], requires_grad=True)
+
+
+
+
+```python
+w
+```
+
+
+
+
+    tensor([[-0.0074],
+            [ 0.0129]], requires_grad=True)
+
+
+
+
+```python
+b.requires_grad_(requires_grad=True) 
+```
+
+
+
+
+    tensor([0.], requires_grad=True)
+
+
+
+
+```python
+b
+```
+
+
+
+
+    tensor([0.], requires_grad=True)
+
+
+
+
+```python
+
+```
+
+
+```python
+
+```
+
+
+```python
+
+```
+
+
+```python
+A=(y_hat.view(-1) - y) ** 2 / 2
+```
+
+
+```python
+y_hat.shape,y.shape
+```
+
+
+
+
+    (torch.Size([1000, 1]), torch.Size([1000]))
+
+
+
+
+```python
+(y_hat.view(-1) - y).shape,(y_hat - y.view(-1)).shape,((y_hat - y.view(y_hat.shape)) ** 2 / 2).shape
+```
+
+
+
+
+    (torch.Size([1000]), torch.Size([1000, 1000]), torch.Size([1000, 1]))
+
+
+
+
+```python
+((y_hat - y.view(-1, 1)) ** 2 / 2).shape
+```
+
+
+
+
+    torch.Size([1000, 1])
+
+
+
+
+```python
+((y_hat - y.view(-1)) ** 2 / 2 ).shape
+```
+
+
+
+
+    torch.Size([1000, 1000])
+
+
+
+
+```python
+(y_hat-y.view(-1)).shape
+```
+
+
+
+
+    torch.Size([1000, 1000])
+
+
+
+
+```python
+def squared_loss(y_hat, y): 
+    return (y_hat - y.view(y_hat.size())) ** 2 / 2  #torch.Size([1000])
+def squared_lossA(y_hat, y): 
+    return (y_hat.view(-1) - y) ** 2 / 2    #torch.Size([1000])
+def squared_lossB(y_hat, y): 
+    return (y_hat - y.view(-1)) ** 2 / 2    #torch.Size([1000,1000])
+def squared_lossC(y_hat, y): 
+    return (y_hat - y.view(y_hat.shape)) ** 2 / 2   #torch.Size([1000])
+def squared_lossD(y_hat, y): 
+    return (y_hat - y.view(-1, 1)) ** 2 / 2    #torch.Size([1000, 1])
+```
+
+
+```python
+y_hat, y=net(features, w, b), labels
+#y_hat.view(-1).size() , y.size()
+```
+
+
+```python
+y_hat.size(), y.view(-1).size()
+```
+
+
+
+
+    (torch.Size([1000, 1]), torch.Size([1000]))
+
+
+
+
+```python
+(y_hat-y.view(-1,-1)).shape
+```
+
+
+    ---------------------------------------------------------------------------
+
+    RuntimeError                              Traceback (most recent call last)
+
+    <ipython-input-264-c6e0233eadd2> in <module>()
+    ----> 1 (y_hat-y.view(-1,-1)).shape
+    
+
+    RuntimeError: only one dimension can be inferred
+
+
+
+```python
+y.view(-1,1).shape,y_hat.shape
+```
+
+
+
+
+    (torch.Size([1000, 1]), torch.Size([1000, 1]))
+
+
+
+
+```python
+2.33	3.14
+1.07	0.98
+1.23	1.32
+```
+
+
+```python
+yhat=torch.tensor([2.33,1.07,1.23])
+y=torch.tensor([3.14,0.98,1.32])
+def squared_loss(y_hat, y): 
+    return (y_hat - y.view(y_hat.size())) ** 2 / 2
+print(squared_loss(yhat, y))
+print(torch.mean(squared_loss(yhat, y)))
+```
+
+    tensor([0.3281, 0.0041, 0.0041])
+    tensor(0.1121)
+
+
+
+```python
+
+
+
+```
+
+
+
+
+    tensor([0.3281, 0.0041, 0.0041])
+
+
+
+
+```python
+
+```
+
+
+
+
+    tensor(0.1121)
+
+
+
+
+```python
+lr = 0.03
+num_epochs = 3
+net = linreg
+loss = squared_loss
+w = torch.tensor(np.random.normal(0, 0.01, (num_inputs, 1)), dtype=torch.float32)
+b = torch.zeros(1, dtype=torch.float32)
+w.requires_grad_(requires_grad=True)
+b.requires_grad_(requires_grad=True) 
+for epoch in range(num_epochs):  # 训练模型一共需要num_epochs个迭代周期
+    # 在每一个迭代周期中，会使用训练数据集中所有样本一次（假设样本数能够被批量大小整除）。X
+    # 和y分别是小批量样本的特征和标签
+    for X, y in data_iter(batch_size, features, labels):
+        l = loss(net(X, w, b), y).sum()  # l是有关小批量X和y的损失
+        l.backward()  # 小批量的损失对模型参数求梯度
+        sgd([w, b], lr, batch_size)  # 使用小批量随机梯度下降迭代模型参数
+        
+        # 不要忘了梯度清零
+        w.grad.data.zero_()
+        b.grad.data.zero_()
+    #print('w',w[0].item(),w[1].item(),'b',b.item())
+    train_l = squared_lossA(net(features, w, b), labels)
+    print('w',w[0].item(),w[1].item(),'b',b.item())
+    print('epoch %d, loss %f' % (epoch + 1, train_l.mean().item()))
+```
+
+    w 1.9516918659210205 -3.261199712753296 b 3.9988179206848145
+    epoch 1, loss 0.031503
+    w 1.9997085332870483 -3.3933534622192383 b 4.189835548400879
+    epoch 2, loss 0.000116
+    w 2.000166654586792 -3.398942232131958 b 4.199468612670898
+    epoch 3, loss 0.000048
+
+
+
+```python
+
+```
+
+
+```python
+num_inputs = 2
+num_examples = 1000
+true_w = [2, -3.4]
+true_b = 4.2
+features = torch.tensor(np.random.normal(0, 1, (num_examples, num_inputs)), dtype=torch.float)
+labels = true_w[0] * features[:, 0] + true_w[1] * features[:, 1] + true_b
+labels += torch.tensor(np.random.normal(0, 0.01, size=labels.size()), dtype=torch.float)
+```
+
+
+```python
+import torch.utils.data as Data
+
+batch_size = 10
+# 将训练数据的特征和标签组合
+dataset = Data.TensorDataset(features, labels)
+# 随机读取小批量
+data_iter = Data.DataLoader(dataset, batch_size, shuffle=True)
+```
+
+
+```python
+for X, y in data_iter:
+    print(X, y)
+    break
+```
+
+    tensor([[ 0.4979, -0.1159],
+            [ 0.3042, -0.9498],
+            [ 0.3829, -0.4768],
+            [ 0.4592,  0.3429],
+            [ 0.4872, -1.2047],
+            [-0.7133,  0.3192],
+            [ 1.5930, -0.0048],
+            [ 0.2526, -0.5475],
+            [-1.7900, -0.8426],
+            [-1.8417, -1.8305]]) tensor([5.5748, 8.0158, 6.5597, 3.9433, 9.2687, 1.7031, 7.4085, 6.5609, 3.4895,
+            6.7489])
+
+
+#首先，引入torch.nn模块。实际上，“ nn”是神经网络（神经网络）的缩写。顾名思义，该模块定义了串联神经网络的层。之前我们已经用过了autograd，而nn就是利用autograd来定义模型。nn的核心数据结构是Module，它是一个抽象概念，既可以表示神经网络中的某个层（layer），也可以表示一个包含很多层的神经网络。在实际使用中，最常见的做法是继承nn.Module，编写自己的网络/层。一个nn.Module实例应该包含一些层以及返回输出的前向传播（forward）方法。下面先来看看如何用nn.Module实现一个线性回归模型。
+
+
+```python
+from torch import nn
+from torch.nn import init
+```
+
+
+```python
+
+class LinearNet(nn.Module):
+    def __init__(self, n_feature):
+        super(LinearNet, self).__init__()
+        self.linear = nn.Linear(n_feature, 1)
+        #nn.Linear Applies a linear transformation to the incoming data
+    # forward 定义前向传播
+    def forward(self, x):
+        y = self.linear(x)
+        return y
+
+net = LinearNet(num_inputs)
+print(net) # 使用print可以打印出网络的结构
+```
+
+    LinearNet(
+      (linear): Linear(in_features=2, out_features=1, bias=True)
+    )
+
+
+
+```python
+#写法一
+net = nn.Sequential(
+    nn.Linear(num_inputs, 1),
+    nn.Linear(num_inputs, 1)
+    # 此处还可以传入其他层
+    )
+
+# 写法二
+net = nn.Sequential()
+net.add_module('linear', nn.Linear(num_inputs, 1))
+# net.add_module ......
+
+# 写法三
+from collections import OrderedDict
+net = nn.Sequential(OrderedDict([
+          ('linear', nn.Linear(num_inputs, 1))
+          # ......
+        ]))
+
+print(net)
+print(net[0])
+```
+
+    Sequential(
+      (linear): Linear(in_features=2, out_features=1, bias=True)
+    )
+    Linear(in_features=2, out_features=1, bias=True)
+
+
+
+```python
+net = nn.Sequential(
+    nn.Linear(num_inputs, 1),
+   # nn.Linear(num_inputs, 1)
+    # 此处还可以传入其他层
+    )
+```
+
+
+```python
+for param in net.parameters():
+    print(param)
+```
+
+    Parameter containing:
+    tensor([[-0.6952,  0.3753]], requires_grad=True)
+    Parameter containing:
+    tensor([-0.0610], requires_grad=True)
+
+
+
+```python
+init.normal_(net[0].weight, mean=0, std=0.01)
+init.constant_(net[0].bias, val=0)
+```
+
+
+
+
+    Parameter containing:
+    tensor([0.], requires_grad=True)
+
+
+
+
+```python
+loss = nn.MSELoss()
+```
+
+
+```python
+import torch.optim as optim
+
+optimizer = optim.SGD(net.parameters(), lr=0.03)
+print(optimizer)
+```
+
+    SGD (
+    Parameter Group 0
+        dampening: 0
+        lr: 0.03
+        momentum: 0
+        nesterov: False
+        weight_decay: 0
+    )
+
+
+
+```python
+# 调整学习率
+for param_group in optimizer.param_groups:
+    param_group['lr'] *= 0.1 # 学习率为之前的0.1倍
+```
+
+
+```python
+num_epochs = 3
+for epoch in range(1, num_epochs + 1):
+    for X, y in data_iter:
+        output = net(X)
+        l = loss(output, y.view(-1, 1))
+        optimizer.zero_grad() # 梯度清零，等价于net.zero_grad()
+        l.backward()
+        optimizer.step()
+    print('epoch %d, loss: %f' % (epoch, l.item()))
+```
+
+    epoch 1, loss: 6.676648
+    epoch 2, loss: 3.320895
+    epoch 3, loss: 0.623434
+
+
+
+```python
+dense = net[0]
+print(true_w, dense.weight)
+print(true_b, dense.bias)
+```
+
+    [2, -3.4] Parameter containing:
+    tensor([[ 1.7713, -2.8827]], requires_grad=True)
+    4.2 Parameter containing:
+    tensor([3.5038], requires_grad=True)
+
+
+
+```python
+
+```
+
+```
+
+```
+
+```python
+import torch
+import torchvision
+import torchvision.transforms as transforms
+import matplotlib.pyplot as plt
+import time
+import sys
+import numpy as np
+sys.path.append("../Dive-into-DL-PyTorch/code/") # 为了导入上层目录的d2lzh_pytorch
+import d2lzh_pytorch as d2l
+```
+
+
+```python
+#我觉得还是放在nas里比较好
+mnist_train = torchvision.datasets.FashionMNIST(root='~/Datasets/FashionMNIST', 
+                                                train=True, download=False, transform=transforms.ToTensor())
+mnist_test = torchvision.datasets.FashionMNIST(root='~/Datasets/FashionMNIST', 
+                                               train=False, download=False, transform=transforms.ToTensor())
+```
+
+
+```python
+print(type(mnist_train))
+print(len(mnist_train), len(mnist_test))
+```
+
+    <class 'torchvision.datasets.mnist.FashionMNIST'>
+    60000 10000
+
+
+
+```python
+feature, label = mnist_train[0]
+print(feature.shape, label)  # Channel x Height x Width
+```
+
+    torch.Size([1, 28, 28]) 9
+
+
+
+```python
+# 本函数已保存在d2lzh包中方便以后使用
+def get_fashion_mnist_labels(labels):
+    text_labels = ['t-shirt', 'trouser', 'pullover', 'dress', 'coat',
+                   'sandal', 'shirt', 'sneaker', 'bag', 'ankle boot']
+    return [text_labels[int(i)] for i in labels]
+def show_fashion_mnist(images, labels):
+    d2l.use_svg_display()
+    # 这里的_表示我们忽略（不使用）的变量
+    _, figs = plt.subplots(1, len(images), figsize=(12, 12))
+    for f, img, lbl in zip(figs, images, labels):
+        f.imshow(img.view((28, 28)).numpy(),cmap='gray')
+        f.set_title(lbl)
+        f.axes.get_xaxis().set_visible(False)
+        f.axes.get_yaxis().set_visible(False)
+    plt.show()
+```
+
+
+```python
+X, y = [], []
+for i in range(10):
+    X.append(mnist_train[i][0])
+    y.append(mnist_train[i][1])
+show_fashion_mnist(X, get_fashion_mnist_labels(y))
+```
+
+
+![svg](output_5_0.svg)
+
+
+
+```python
+batch_size = 256
+if sys.platform.startswith('win'):
+    num_workers = 0  # 0表示不用额外的进程来加速读取数据
+else:
+    num_workers = 4
+train_iter = torch.utils.data.DataLoader(mnist_train, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+test_iter = torch.utils.data.DataLoader(mnist_test, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+```
+
+
+```python
+start = time.time()
+for X, y in train_iter:
+    continue
+print('%.2f sec' % (time.time() - start))
+```
+
+    1.03 sec
+
+
+
+```python
+batch_size = 256
+train_iter, test_iter = d2l.load_data_fashion_mnist(batch_size)
+```
+
+
+```python
+num_inputs = 784
+num_outputs = 10
+
+W = torch.tensor(np.random.normal(0, 0.01, (num_inputs, num_outputs)), dtype=torch.float)
+b = torch.zeros(num_outputs, dtype=torch.float)
+```
+
+
+```python
+W.requires_grad_(requires_grad=True)
+b.requires_grad_(requires_grad=True) 
+```
+
+
+
+
+    tensor([0., 0., 0., 0., 0., 0., 0., 0., 0., 0.], requires_grad=True)
+
+
+
+
+```python
+X = torch.tensor([[1, 2, 3], [4, 5, 6]])
+print(X.sum(dim=0, keepdim=True))
+print(X.sum(dim=1, keepdim=True))
+```
+
+    tensor([[5, 7, 9]])
+    tensor([[ 6],
+            [15]])
+
+
+
+```python
+def softmax(X):
+    X_exp = X.exp()
+    partition = X_exp.sum(dim=1, keepdim=True)
+    return X_exp / partition  # 这里应用了广播机制
+```
+
+
+```python
+X = torch.rand((2, 5))
+X_prob = softmax(X)
+print(X_prob, X_prob.sum(dim=1))
+```
+
+    tensor([[0.1998, 0.2368, 0.1559, 0.1310, 0.2765],
+            [0.3365, 0.1376, 0.1263, 0.2694, 0.1303]]) tensor([1.0000, 1.0000])
+
+
+
+```python
+a=torch.rand((2, 5)).exp()
+a/a.sum(dim=1,keepdim=True)
+```
+
+
+
+
+    tensor([[0.2334, 0.1994, 0.2697, 0.1835, 0.1141],
+            [0.1431, 0.3011, 0.1531, 0.1824, 0.2203]])
+
+
+
+
+```python
+def net(X):
+    mmresult=torch.mm(X.view((-1, num_inputs)), W) + b
+    return softmax(mmresult)
+```
+
+
+```python
+y_hat = torch.tensor([[0.1, 0.3, 0.6], [0.3, 0.2, 0.5]])
+y = torch.LongTensor([0, 2])
+y_hat.gather(1, y.view(-1, 1))
+```
+
+
+
+
+    tensor([[0.1000],
+            [0.5000]])
+
+
+
+
+```python
+def cross_entropy(y_hat, y):
+    return - torch.log(y_hat.gather(1, y.view(-1, 1)))
+```
+
+
+```python
+def accuracy(y_hat, y):
+    return (y_hat.argmax(dim=1) == y).float().mean().item()
+```
+
+
+```python
+print(accuracy(y_hat, y))
+```
+
+    0.5
+
+
+
+```python
+# 本函数已保存在d2lzh_pytorch包中方便以后使用。该函数将被逐步改进：它的完整实现将在“图像增广”一节中描述
+def evaluate_accuracy(data_iter, net):
+    acc_sum, n = 0.0, 0
+    for X, y in data_iter:
+        acc_sum += (net(X).argmax(dim=1) == y).float().sum().item()
+        n += y.shape[0]
+    return acc_sum / n
+```
+
+
+```python
+print(evaluate_accuracy(test_iter, net))
+```
+
+    0.1435
+
+
+
+```python
+num_epochs, lr = 5, 0.1
+
+# 本函数已保存在d2lzh包中方便以后使用
+def train_ch3(net, train_iter, test_iter, loss, num_epochs, batch_size,
+              params=None, lr=None, optimizer=None):
+    for epoch in range(num_epochs):
+        train_l_sum, train_acc_sum, n = 0.0, 0.0, 0
+        for X, y in train_iter:
+            y_hat = net(X)
+            l = loss(y_hat, y).sum()
+
+            # 梯度清零
+            if optimizer is not None:
+                optimizer.zero_grad()
+            elif params is not None and params[0].grad is not None:
+                for param in params:
+                    param.grad.data.zero_()
+
+            l.backward()
+            if optimizer is None:
+                d2l.sgd(params, lr, batch_size)
+            else:
+                optimizer.step()  # “softmax回归的简洁实现”一节将用到
+
+
+            train_l_sum += l.item()
+            train_acc_sum += (y_hat.argmax(dim=1) == y).sum().item()
+            n += y.shape[0]
+        train_acc = evaluate_accuracy(train_iter, net)
+        test_acc = evaluate_accuracy(test_iter, net)
+        #print(train_acc)
+        print('epoch %d, loss %.4f, train acc %.3f, test acc %.3f'
+              % (epoch + 1, train_l_sum / n, train_acc_sum / n, test_acc))
+
+
+```
+
+
+```python
+train_ch3(net, train_iter, test_iter, cross_entropy, num_epochs, batch_size, [W, b], lr)
+
+```
+
+    epoch 1, loss 0.7852, train acc 0.749, test acc 0.785
+    epoch 2, loss 0.5709, train acc 0.813, test acc 0.809
+    epoch 3, loss 0.5251, train acc 0.826, test acc 0.821
+    epoch 4, loss 0.5017, train acc 0.832, test acc 0.821
+    epoch 5, loss 0.4860, train acc 0.837, test acc 0.828
+
+
+
+```python
+softmax(torch.tensor([[100,101,102]],dtype=torch.double)),softmax(torch.tensor([[-2,-1,0]],dtype=torch.double))
+```
+
+
+
+
+    (tensor([[0.0900, 0.2447, 0.6652]], dtype=torch.float64),
+     tensor([[0.0900, 0.2447, 0.6652]], dtype=torch.float64))
+
+
+
+
+```python
+X, y = iter(test_iter).next()
+
+true_labels = d2l.get_fashion_mnist_labels(y.numpy())
+pred_labels = d2l.get_fashion_mnist_labels(net(X).argmax(dim=1).numpy())
+titles = [true + '\n' + pred for true, pred in zip(true_labels, pred_labels)]
+
+show_fashion_mnist(X[0:9], titles[0:9])
+```
+
+
+![svg](output_25_0.svg)
+
+
+
+```python
+import torch
+from torch import nn
+from torch.nn import init
+```
+
+
+```python
+batch_size = 256
+train_iter, test_iter = d2l.load_data_fashion_mnist(batch_size)
+```
+
+
+```python
+num_inputs = 784
+num_outputs = 10
+
+class LinearNet(nn.Module):
+    def __init__(self, num_inputs, num_outputs):
+        super(LinearNet, self).__init__()
+        self.linear = nn.Linear(num_inputs, num_outputs)
+    def forward(self, x): # x shape: (batch, 1, 28, 28)
+        y = self.linear(x.view(x.shape[0], -1))
+        return y
+
+net = LinearNet(num_inputs, num_outputs)
+```
+
+
+```python
+# 本函数已保存在d2lzh_pytorch包中方便以后使用
+class FlattenLayer(nn.Module):
+    def __init__(self):
+        super(FlattenLayer, self).__init__()
+    def forward(self, x): # x shape: (batch, *, *, ...)
+        return x.view(x.shape[0], -1)
+```
+
+
+```python
+from collections import OrderedDict
+
+net = nn.Sequential(
+    # FlattenLayer(),
+    # nn.Linear(num_inputs, num_outputs)
+    OrderedDict([
+        ('flatten', FlattenLayer()),
+        ('linear', nn.Linear(num_inputs, num_outputs))
+    ])
+)
+```
+
+
+```python
+init.normal_(net.linear.weight, mean=0, std=0.01)
+init.constant_(net.linear.bias, val=0) 
+```
+
+
+
+
+    Parameter containing:
+    tensor([0., 0., 0., 0., 0., 0., 0., 0., 0., 0.], requires_grad=True)
+
+
+
+
+```python
+loss = nn.CrossEntropyLoss()
+```
+
+
+```python
+optimizer = torch.optim.SGD(net.parameters(), lr=0.1)
+```
+
+
+```python
+num_epochs = 5
+train_ch3(net, train_iter, test_iter, loss, num_epochs, batch_size, None, None, optimizer)
+```
+
+    epoch 1, loss 0.0031, train acc 0.750, test acc 0.789
+    epoch 2, loss 0.0022, train acc 0.812, test acc 0.808
+    epoch 3, loss 0.0021, train acc 0.826, test acc 0.820
+    epoch 4, loss 0.0020, train acc 0.833, test acc 0.825
+    epoch 5, loss 0.0019, train acc 0.837, test acc 0.825
+
+
+#Multi Layer Sensor
+
+```python
+import torch
+import torchvision
+import torchvision.transforms as transforms
+import matplotlib.pyplot as plt
+import time
+import sys
+import numpy as np
+sys.path.append("../Dive-into-DL-PyTorch/code/") # 为了导入上层目录的d2lzh_pytorch
+import d2lzh_pytorch as d2l
+sys.path.append('/Users/chaorun/')
+from SoTinShuiLib import *
+```
+
+
+```python
+print(torch.__version__)
+```
+
+    1.4.0
+
+
+### ReLU
+
+
+```python
+def xyplot(x_vals, y_vals, name):
+    # d2l.set_figsize(figsize=(5, 2.5))
+    plt.plot(x_vals.detach().numpy(), y_vals.detach().numpy())
+    plt.xlabel('x')
+    plt.ylabel(name + '(x)')
+```
+
+
+```python
+x = torch.arange(-8.0, 8.0, 0.1, requires_grad=True)
+y = x.relu()
+xyplot(x, y, 'relu')
+plt.show()
+```
+
+ 
+
+
+
+```python
+print(y.sum().backward())
+xyplot(x, x.grad, 'grad of relu')
+plt.show()
+```
+
+    None
+
+
+
+
+
+
+### sigmoid
+
+
+```python
+x = torch.arange(-8.0, 8.0, 0.1, requires_grad=True)
+y = x.sigmoid()
+xyplot(x, y, 'sigmoid')
+plt.show()
+```
+
+
+
+```python
+x = torch.arange(-8.0, 8.0, 0.1, requires_grad=True)
+y = x.sigmoid()
+y.sum().backward()
+#x.grad.zero_()
+xyplot(x, x.grad, 'grad of sigmoid')
+plt.show()
+```
+
+
+
+
+
+
+```python
+x = torch.arange(-8.0, 8.0, 0.1, requires_grad=True)
+y = x.sigmoid()
+y.sum().backward()
+xyplot(x, x.grad, 'grad of sigmoid')
+plt.show()
+```
+
+
+
+
+
+
+```python
+x = torch.arange(-8.0, 8.0, 0.1, requires_grad=True)
+y = x.tanh()
+xyplot(x, y, 'tanh')
+plt.show()
+```
+
+
+
+```python
+
+```
+
+
+```python
+batch_size = 256
+train_iter, test_iter = d2l.load_data_fashion_mnist(batch_size,root='~/Datasets/FashionMNIST')
+```
+
+
+```python
+num_inputs, num_outputs, num_hiddens = 784, 10, 256
+
+W1 = torch.tensor(np.random.normal(0, 0.01, (num_inputs, num_hiddens)), dtype=torch.float)
+b1 = torch.zeros(num_hiddens, dtype=torch.float)
+W2 = torch.tensor(np.random.normal(0, 0.01, (num_hiddens, num_outputs)), dtype=torch.float)
+b2 = torch.zeros(num_outputs, dtype=torch.float)
+
+params = [W1, b1, W2, b2]
+for param in params:
+    param.requires_grad_(requires_grad=True)
+```
+
+
+```python
+def relu(X):
+    return torch.max(input=X, other=torch.tensor(0.0))
+```
+
+
+```python
+def net(X):
+    X = X.view((-1, num_inputs))
+    H = relu(torch.matmul(X, W1) + b1)
+    O = torch.matmul(H, W2) + b2
+    return O
+```
+
+
+```python
+loss = torch.nn.CrossEntropyLoss()
+```
+
+
+```python
+num_epochs, lr = 5, 100.0
+# def train_ch3(net, train_iter, test_iter, loss, num_epochs, batch_size,
+#               params=None, lr=None, optimizer=None):
+#     for epoch in range(num_epochs):
+#         train_l_sum, train_acc_sum, n = 0.0, 0.0, 0
+#         for X, y in train_iter:
+#             y_hat = net(X)
+#             l = loss(y_hat, y).sum()
+#             
+#             # 梯度清零
+#             if optimizer is not None:
+#                 optimizer.zero_grad()
+#             elif params is not None and params[0].grad is not None:
+#                 for param in params:
+#                     param.grad.data.zero_()
+#            
+#             l.backward()
+#             if optimizer is None:
+#                 d2l.sgd(params, lr, batch_size)
+#             else:
+#                 optimizer.step()  # “softmax回归的简洁实现”一节将用到
+#             
+#             
+#             train_l_sum += l.item()
+#             train_acc_sum += (y_hat.argmax(dim=1) == y).sum().item()
+#             n += y.shape[0]
+#         test_acc = evaluate_accuracy(test_iter, net)
+#         print('epoch %d, loss %.4f, train acc %.3f, test acc %.3f'
+#               % (epoch + 1, train_l_sum / n, train_acc_sum / n, test_acc))
+
+d2l.train_ch3(net, train_iter, test_iter, loss, num_epochs, batch_size, params, lr)
+```
+
+    epoch 1, loss 0.0030, train acc 0.713, test acc 0.785
+    epoch 2, loss 0.0019, train acc 0.825, test acc 0.817
+    epoch 3, loss 0.0017, train acc 0.846, test acc 0.820
+    epoch 4, loss 0.0015, train acc 0.856, test acc 0.831
+    epoch 5, loss 0.0014, train acc 0.865, test acc 0.838
+
+
+
+```python
+num_inputs, num_outputs, num_hiddens = 784, 10, 256
+
+W1 = torch.tensor(np.random.normal(0, 0.01, (num_inputs, num_hiddens)), dtype=torch.float)
+b1 = torch.zeros(num_hiddens, dtype=torch.float)
+W2 = torch.tensor(np.random.normal(0, 0.01, (num_hiddens, num_outputs)), dtype=torch.float)
+b2 = torch.zeros(num_outputs, dtype=torch.float)
+
+params = [W1, b1, W2, b2]
+for param in params:
+    param.requires_grad_(requires_grad=True)
+loss = torch.nn.CrossEntropyLoss() 
+def relu(X):
+    return torch.max(input=X, other=torch.tensor(0.0))
+def tanh(X):
+    return X.tanh()
+def net(X):
+    X = X.view((-1, num_inputs))
+    H = tanh(torch.matmul(X, W1) + b1)
+    O = torch.matmul(H, W2) + b2
+    return O
+num_epochs, lr = 5, 100.0
+d2l.train_ch3(net, train_iter, test_iter, loss, num_epochs, batch_size, params, lr)
+```
+
+    epoch 1, loss 0.0029, train acc 0.730, test acc 0.672
+    epoch 2, loss 0.0020, train acc 0.815, test acc 0.811
+    epoch 3, loss 0.0018, train acc 0.828, test acc 0.807
+    epoch 4, loss 0.0017, train acc 0.845, test acc 0.842
+    epoch 5, loss 0.0016, train acc 0.851, test acc 0.824
+
+
+
+```python
+
+```
+
+
+```python
+
+```
+
+
+```python
+from torch import nn
+from torch.nn import init
+num_inputs, num_outputs, num_hiddens,num_hiddens2 = 784, 10, 256, 128
+    
+net = nn.Sequential(
+        d2l.FlattenLayer(),
+        nn.Linear(num_inputs, num_hiddens),
+        nn.ReLU(),
+        #nn.Sigmoid(),
+        nn.Linear(num_hiddens, num_hiddens2),
+        nn.Sigmoid(),
+        nn.Linear(num_hiddens2, num_outputs), 
+        )
+    
+for params in net.parameters():
+    init.normal_(params, mean=0, std=0.01)
+batch_size = 256
+train_iter, test_iter = d2l.load_data_fashion_mnist(batch_size,root='~/Datasets/FashionMNIST')
+loss = torch.nn.CrossEntropyLoss()
+
+optimizer = torch.optim.SGD(net.parameters(), lr=0.5)
+
+num_epochs = 5
+d2l.train_ch3(net, train_iter, test_iter, loss, num_epochs, batch_size, None, None, optimizer)
+```
+
+    epoch 1, loss 0.0059, train acc 0.405, test acc 0.646
+    epoch 2, loss 0.0028, train acc 0.718, test acc 0.770
+    epoch 3, loss 0.0023, train acc 0.780, test acc 0.794
+    epoch 4, loss 0.0020, train acc 0.809, test acc 0.813
+    epoch 5, loss 0.0019, train acc 0.827, test acc 0.818
+
+
+
+```python
+
+```
+
+
+```python
+d=256*256
+h=1000
+q=10
+```
+
+
+```python
+d*h+h*q
+```
+
+
+
+
+    65546000
+
+
+
+
+```python
+
+```
