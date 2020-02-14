@@ -6,6 +6,9 @@ categories: jekyll update
 ---
 课程笔记
 
+1)  线性拟合
+2） SoftMAX
+3） 多层感知机
 
 ```python
 #线性回归
@@ -15,29 +18,25 @@ categories: jekyll update
 ```python
 %matplotlib nbagg
 from __future__ import print_function, division
-import torch
 from IPython import display
 from matplotlib import pyplot as plt
-import numpy as np
-import random
+from collections import OrderedDict
 import sys
-import torch.utils.data as Data
+sys.path.append('/Users/chaorun/')
+from SoTinShuiLib import *
 
+import torch
 from torch import nn
 from torch.nn import init
-from collections import OrderedDict
-import torch
+import torch.utils.data as Data
+
 import torchvision
 import torchvision.transforms as transforms
-import matplotlib.pyplot as plt
-import time
-import sys
-import numpy as np
+
 sys.path.append("../Dive-into-DL-PyTorch/code/") # 为了导入上层目录的d2lzh_pytorch
 import d2lzh_pytorch as d2l
 #为了方便，引入自己的包
-sys.path.append('/Users/chaorun/')
-from SoTinShuiLib import *
+
 
 
 ```
@@ -581,8 +580,6 @@ for i in range(10):
 show_fashion_mnist(X, get_fashion_mnist_labels(y))
 ```
 
-
-![svg](output_5_0.svg)
 
 
 
