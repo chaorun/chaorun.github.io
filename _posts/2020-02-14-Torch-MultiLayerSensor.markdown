@@ -61,7 +61,7 @@ plt.show()
 
 
 
-![png](output_5_1.png)
+
 
 
 ### sigmoid
@@ -75,9 +75,6 @@ plt.show()
 ```
 
 
-![png](output_7_0.png)
-
-
 
 ```python
 x = torch.arange(-8.0, 8.0, 0.1, requires_grad=True)
@@ -89,7 +86,7 @@ plt.show()
 ```
 
 
-![png](output_8_0.png)
+
 
 
 
@@ -102,7 +99,7 @@ plt.show()
 ```
 
 
-![png](output_9_0.png)
+
 
 
 
@@ -112,9 +109,6 @@ y = x.tanh()
 xyplot(x, y, 'tanh')
 plt.show()
 ```
-
-
-![png](output_10_0.png)
 
 
 
