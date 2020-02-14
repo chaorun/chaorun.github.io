@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  "Torch Text MachineLearningr"
+title:  "Torch Text MachineLearning"
 date:   2020-02-14 10:34:47 +0800
 categories: jekyll update
 ---
