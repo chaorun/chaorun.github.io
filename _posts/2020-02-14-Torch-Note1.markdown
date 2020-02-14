@@ -20,6 +20,26 @@ from IPython import display
 from matplotlib import pyplot as plt
 import numpy as np
 import random
+import sys
+import torch.utils.data as Data
+
+from torch import nn
+from torch.nn import init
+from collections import OrderedDict
+import torch
+import torchvision
+import torchvision.transforms as transforms
+import matplotlib.pyplot as plt
+import time
+import sys
+import numpy as np
+sys.path.append("../Dive-into-DL-PyTorch/code/") # 为了导入上层目录的d2lzh_pytorch
+import d2lzh_pytorch as d2l
+#为了方便，引入自己的包
+sys.path.append('/Users/chaorun/')
+from SoTinShuiLib import *
+
+
 ```
 
 
@@ -33,20 +53,10 @@ features = torch.randn(num_examples, num_inputs,
 labels = true_w[0] * features[:, 0] + true_w[1] * features[:, 1] + true_b
 labels += torch.tensor(np.random.normal(0, 0.01, size=labels.size()),
                        dtype=torch.float32)
-```
-
-
-```python
-
-```
-
-
-```python
 print(features[0], labels[0])
 ```
 
     tensor([-0.2368,  1.4790]) tensor(-1.3003)
-
 
 
 ```python
@@ -67,6 +77,7 @@ def set_figsize(figsize=(3.5, 2.5)):
 set_figsize()
 plt.scatter(features[:, 1].numpy(), labels.numpy(), 1);
 plt.show()
+#这个鱼唇的intel python3.6必须要加一个plt.show()才行
 ```
 
 ```python
@@ -90,10 +101,6 @@ def squared_loss(y_hat, y):  # 本函数已保存在d2lzh_pytorch包中方便以
 def sgd(params, lr, batch_size):  # 本函数已保存在d2lzh_pytorch包中方便以后使用
     for param in params:
         param.data -= lr * param.grad / batch_size # 注意这里更改param时用的param.data
-```
-
-
-```python
 batch_size = 10
 
 for X, y in data_iter(batch_size, features, labels):
@@ -118,100 +125,20 @@ for X, y in data_iter(batch_size, features, labels):
 ```python
 w = torch.tensor(np.random.normal(0, 0.01, (num_inputs, 1)), dtype=torch.float32)
 b = torch.zeros(1, dtype=torch.float32)
-```
-
-
-```python
-w
-```
-
-
-
-
-    tensor([[-0.0074],
-            [ 0.0129]])
-
-
-
-
-```python
-w
-```
-
-
-
-
-    tensor([[-0.0074],
-            [ 0.0129]])
-
-
-
 #之后的模型训练中，需要对这些参数求梯度来迭代参数的值，因此我们要让它们的requires_grad=True。
-
-
-```python
 w.requires_grad_(requires_grad=True)
-```
-
-
-
-
-    tensor([[-0.0074],
-            [ 0.0129]], requires_grad=True)
-
-
-
-
-```python
-w
-```
-
-
-
-
-    tensor([[-0.0074],
-            [ 0.0129]], requires_grad=True)
-
-
-
-
-```python
 b.requires_grad_(requires_grad=True) 
 ```
 
 
 
 
-    tensor([0.], requires_grad=True)
+    tensor([[-0.0074],
+            [ 0.0129]], requires_grad=True)
 
 
 
 
-```python
-b
-```
-
-
-
-
-    tensor([0.], requires_grad=True)
-
-
-
-
-```python
-
-```
-
-
-```python
-
-```
-
-
-```python
-
-```
 
 
 ```python
@@ -315,19 +242,6 @@ y_hat.size(), y.view(-1).size()
 (y_hat-y.view(-1,-1)).shape
 ```
 
-
-    ---------------------------------------------------------------------------
-
-    RuntimeError                              Traceback (most recent call last)
-
-    <ipython-input-264-c6e0233eadd2> in <module>()
-    ----> 1 (y_hat-y.view(-1,-1)).shape
-    
-
-    RuntimeError: only one dimension can be inferred
-
-
-
 ```python
 y.view(-1,1).shape,y_hat.shape
 ```
@@ -339,12 +253,6 @@ y.view(-1,1).shape,y_hat.shape
 
 
 
-
-```python
-2.33	3.14
-1.07	0.98
-1.23	1.32
-```
 
 
 ```python
@@ -439,7 +347,6 @@ labels += torch.tensor(np.random.normal(0, 0.01, size=labels.size()), dtype=torc
 
 
 ```python
-import torch.utils.data as Data
 
 batch_size = 10
 # 将训练数据的特征和标签组合
@@ -469,12 +376,6 @@ for X, y in data_iter:
 
 
 #首先，引入torch.nn模块。实际上，“ nn”是神经网络（神经网络）的缩写。顾名思义，该模块定义了串联神经网络的层。之前我们已经用过了autograd，而nn就是利用autograd来定义模型。nn的核心数据结构是Module，它是一个抽象概念，既可以表示神经网络中的某个层（layer），也可以表示一个包含很多层的神经网络。在实际使用中，最常见的做法是继承nn.Module，编写自己的网络/层。一个nn.Module实例应该包含一些层以及返回输出的前向传播（forward）方法。下面先来看看如何用nn.Module实现一个线性回归模型。
-
-
-```python
-from torch import nn
-from torch.nn import init
-```
 
 
 ```python
@@ -513,7 +414,6 @@ net.add_module('linear', nn.Linear(num_inputs, 1))
 # net.add_module ......
 
 # 写法三
-from collections import OrderedDict
 net = nn.Sequential(OrderedDict([
           ('linear', nn.Linear(num_inputs, 1))
           # ......
@@ -624,27 +524,6 @@ print(true_b, dense.bias)
     4.2 Parameter containing:
     tensor([3.5038], requires_grad=True)
 
-
-
-```python
-
-```
-
-```
-
-```
-
-```python
-import torch
-import torchvision
-import torchvision.transforms as transforms
-import matplotlib.pyplot as plt
-import time
-import sys
-import numpy as np
-sys.path.append("../Dive-into-DL-PyTorch/code/") # 为了导入上层目录的d2lzh_pytorch
-import d2lzh_pytorch as d2l
-```
 
 
 ```python
@@ -939,17 +818,6 @@ show_fashion_mnist(X[0:9], titles[0:9])
 ```
 
 
-![svg](output_25_0.svg)
-
-
-
-```python
-import torch
-from torch import nn
-from torch.nn import init
-```
-
-
 ```python
 batch_size = 256
 train_iter, test_iter = d2l.load_data_fashion_mnist(batch_size)
@@ -983,7 +851,6 @@ class FlattenLayer(nn.Module):
 
 
 ```python
-from collections import OrderedDict
 
 net = nn.Sequential(
     # FlattenLayer(),
@@ -1033,20 +900,6 @@ train_ch3(net, train_iter, test_iter, loss, num_epochs, batch_size, None, None, 
 
 
 #Multi Layer Sensor
-
-```python
-import torch
-import torchvision
-import torchvision.transforms as transforms
-import matplotlib.pyplot as plt
-import time
-import sys
-import numpy as np
-sys.path.append("../Dive-into-DL-PyTorch/code/") # 为了导入上层目录的d2lzh_pytorch
-import d2lzh_pytorch as d2l
-sys.path.append('/Users/chaorun/')
-from SoTinShuiLib import *
-```
 
 
 ```python
@@ -1303,32 +1156,3 @@ d2l.train_ch3(net, train_iter, test_iter, loss, num_epochs, batch_size, None, No
     epoch 4, loss 0.0020, train acc 0.809, test acc 0.813
     epoch 5, loss 0.0019, train acc 0.827, test acc 0.818
 
-
-
-```python
-
-```
-
-
-```python
-d=256*256
-h=1000
-q=10
-```
-
-
-```python
-d*h+h*q
-```
-
-
-
-
-    65546000
-
-
-
-
-```python
-
-```
