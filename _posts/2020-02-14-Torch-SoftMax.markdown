@@ -1,7 +1,7 @@
 ---
 layout: post
 title:  "Torch Softmax"
-date:   2020-02-14 19:34:47 +0800
+date:   2020-02-14 12:34:47 +0800
 categories: jekyll update
 ---
 
