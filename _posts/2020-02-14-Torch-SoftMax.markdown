@@ -407,31 +407,3 @@ train_ch3(net, train_iter, test_iter, loss, num_epochs, batch_size, None, None, 
     epoch 5, loss 0.0019, train acc 0.837, test acc 0.825
 
 
-
-```python
-softmax([100, 101, 102])
-```
-
-
-    ---------------------------------------------------------------------------
-
-    AttributeError                            Traceback (most recent call last)
-
-    <ipython-input-81-62a411a914f1> in <module>()
-    ----> 1 softmax([100, 101, 102])
-    
-
-    <ipython-input-40-dfe235358233> in softmax(X)
-          1 def softmax(X):
-    ----> 2     X_exp = X.exp()
-          3     partition = X_exp.sum(dim=1, keepdim=True)
-          4     return X_exp / partition  # 这里应用了广播机制
-
-
-    AttributeError: 'list' object has no attribute 'exp'
-
-
-
-```python
-
-```
