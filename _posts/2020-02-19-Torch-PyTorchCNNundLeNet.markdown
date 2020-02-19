@@ -1,7 +1,7 @@
 ---
 layout: post
-title:  "Torch CNN基础与进阶；leNet"
-date:   2020-02-19 10:34:47 +0800
+title:  "Torch CNN基础与进阶&LeNet"
+date:   2020-02-19 10:44:47 +0800
 categories: jekyll update
 ---
 
