@@ -1,4 +1,9 @@
-
+---
+layout: post
+title:  "Torch Text 过拟合，欠拟合，梯度消失，梯度爆炸，循环神经网络进阶"
+date:   2020-02-19 10:34:47 +0800
+categories: jekyll update
+---
 
 ```
 # Pytorch: 过拟合，欠拟合，梯度消失，梯度爆炸，循环神经网络进阶
