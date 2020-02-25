@@ -1,0 +1,1608 @@
+---
+layout: post
+title:  "Torch 批量归一化 凸优化 梯度下降"
+date:   2020-02-25 10:34:47 +0800
+categories: jekyll update
+---
+
+# 批量归一化 凸优化 梯度下降
+
+# 批量归一化（BatchNormalization）
+#### 对输入的标准化（浅层模型）
+处理后的任意一个特征在数据集中所有样本上的均值为0、标准差为1。  
+标准化处理输入数据使各个特征的分布相近
+#### 批量归一化（深度模型）
+利用小批量上的均值和标准差，不断调整神经网络中间输出，从而使整个神经网络在各层的中间输出的数值更稳定。
+
+### 1.对全连接层做批量归一化
+位置：全连接层中的仿射变换和激活函数之间。  
+**全连接：**  
+$$
+\boldsymbol{x} = \boldsymbol{W\boldsymbol{u} + \boldsymbol{b}} \\
+ output =\phi(\boldsymbol{x})
+ $$   
+
+
+**批量归一化：**
+$$ 
+output=\phi(\text{BN}(\boldsymbol{x}))$$
+
+
+$$
+\boldsymbol{y}^{(i)} = \text{BN}(\boldsymbol{x}^{(i)})
+$$
+
+
+$$
+\boldsymbol{\mu}_\mathcal{B} \leftarrow \frac{1}{m}\sum_{i = 1}^{m} \boldsymbol{x}^{(i)},
+$$ 
+$$
+\boldsymbol{\sigma}_\mathcal{B}^2 \leftarrow \frac{1}{m} \sum_{i=1}^{m}(\boldsymbol{x}^{(i)} - \boldsymbol{\mu}_\mathcal{B})^2,
+$$
+
+
+$$
+\hat{\boldsymbol{x}}^{(i)} \leftarrow \frac{\boldsymbol{x}^{(i)} - \boldsymbol{\mu}_\mathcal{B}}{\sqrt{\boldsymbol{\sigma}_\mathcal{B}^2 + \epsilon}},
+$$
+
+这⾥ϵ > 0是个很小的常数，保证分母大于0
+
+
+$$
+{\boldsymbol{y}}^{(i)} \leftarrow \boldsymbol{\gamma} \odot
+\hat{\boldsymbol{x}}^{(i)} + \boldsymbol{\beta}.
+$$
+
+
+引入可学习参数：拉伸参数γ和偏移参数β。若$\boldsymbol{\gamma} = \sqrt{\boldsymbol{\sigma}_\mathcal{B}^2 + \epsilon}$和$\boldsymbol{\beta} = \boldsymbol{\mu}_\mathcal{B}$，批量归一化无效。
+
+### 2.对卷积层做批量归⼀化
+位置：卷积计算之后、应⽤激活函数之前。  
+如果卷积计算输出多个通道，我们需要对这些通道的输出分别做批量归一化，且每个通道都拥有独立的拉伸和偏移参数。
+计算：对单通道，batchsize=m,卷积计算输出=pxq
+对该通道中m×p×q个元素同时做批量归一化,使用相同的均值和方差。
+
+### 3.预测时的批量归⼀化
+训练：以batch为单位,对每个batch计算均值和方差。  
+预测：用移动平均估算整个训练数据集的样本均值和方差。
+### 从零实现
+
+
+```python
+#目前GPU算力资源预计17日上线，在此之前本代码只能使用CPU运行。
+#考虑到本代码中的模型过大，CPU训练较慢，
+#我们还将代码上传了一份到 https://www.kaggle.com/boyuai/boyu-d2l-deepcnn
+#如希望提前使用gpu运行请至kaggle。
+```
+
+
+```python
+import time
+import torch
+from torch import nn, optim
+import torch.nn.functional as F
+import torchvision
+import sys
+sys.path.append("../Pytorch") 
+import d2l #d2lzh1981 as d2l
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+def batch_norm(is_training, X, gamma, beta, moving_mean, moving_var, eps, momentum):
+    # 判断当前模式是训练模式还是预测模式
+    if not is_training:
+        # 如果是在预测模式下，直接使用传入的移动平均所得的均值和方差
+        X_hat = (X - moving_mean) / torch.sqrt(moving_var + eps)
+    else:
+        assert len(X.shape) in (2, 4)
+        if len(X.shape) == 2:
+            # 使用全连接层的情况，计算特征维上的均值和方差
+            mean = X.mean(dim=0)
+            var = ((X - mean) ** 2).mean(dim=0)
+        else:
+            # 使用二维卷积层的情况，计算通道维上（axis=1）的均值和方差。这里我们需要保持
+            # X的形状以便后面可以做广播运算
+            mean = X.mean(dim=0, keepdim=True).mean(dim=2, keepdim=True).mean(dim=3, keepdim=True)
+            var = ((X - mean) ** 2).mean(dim=0, keepdim=True).mean(dim=2, keepdim=True).mean(dim=3, keepdim=True)
+        # 训练模式下用当前的均值和方差做标准化
+        X_hat = (X - mean) / torch.sqrt(var + eps)
+        # 更新移动平均的均值和方差
+        moving_mean = momentum * moving_mean + (1.0 - momentum) * mean
+        moving_var = momentum * moving_var + (1.0 - momentum) * var
+    Y = gamma * X_hat + beta  # 拉伸和偏移
+    return Y, moving_mean, moving_var
+```
+
+
+```python
+class BatchNorm(nn.Module):
+    def __init__(self, num_features, num_dims):
+        super(BatchNorm, self).__init__()
+        if num_dims == 2:
+            shape = (1, num_features) #全连接层输出神经元
+        else:
+            shape = (1, num_features, 1, 1)  #通道数
+        # 参与求梯度和迭代的拉伸和偏移参数，分别初始化成0和1
+        self.gamma = nn.Parameter(torch.ones(shape))
+        self.beta = nn.Parameter(torch.zeros(shape))
+        # 不参与求梯度和迭代的变量，全在内存上初始化成0
+        self.moving_mean = torch.zeros(shape)
+        self.moving_var = torch.zeros(shape)
+
+    def forward(self, X):
+        # 如果X不在内存上，将moving_mean和moving_var复制到X所在显存上
+        if self.moving_mean.device != X.device:
+            self.moving_mean = self.moving_mean.to(X.device)
+            self.moving_var = self.moving_var.to(X.device)
+        # 保存更新过的moving_mean和moving_var, Module实例的traning属性默认为true, 调用.eval()后设成false
+        Y, self.moving_mean, self.moving_var = batch_norm(self.training, 
+            X, self.gamma, self.beta, self.moving_mean,
+            self.moving_var, eps=1e-5, momentum=0.9)
+        return Y
+```
+
+### 基于LeNet的应用
+
+
+```python
+net = nn.Sequential(
+            nn.Conv2d(1, 6, 5), # in_channels, out_channels, kernel_size
+            BatchNorm(6, num_dims=4),
+            nn.Sigmoid(),
+            nn.MaxPool2d(2, 2), # kernel_size, stride
+            nn.Conv2d(6, 16, 5),
+            BatchNorm(16, num_dims=4),
+            nn.Sigmoid(),
+            nn.MaxPool2d(2, 2),
+            d2l.FlattenLayer(),
+            nn.Linear(16*4*4, 120),
+            BatchNorm(120, num_dims=2),
+            nn.Sigmoid(),
+            nn.Linear(120, 84),
+            BatchNorm(84, num_dims=2),
+            nn.Sigmoid(),
+            nn.Linear(84, 10)
+        )
+print(net)
+```
+
+    Sequential(
+      (0): Conv2d(1, 6, kernel_size=(5, 5), stride=(1, 1))
+      (1): BatchNorm()
+      (2): Sigmoid()
+      (3): MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False)
+      (4): Conv2d(6, 16, kernel_size=(5, 5), stride=(1, 1))
+      (5): BatchNorm()
+      (6): Sigmoid()
+      (7): MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False)
+      (8): FlattenLayer()
+      (9): Linear(in_features=256, out_features=120, bias=True)
+      (10): BatchNorm()
+      (11): Sigmoid()
+      (12): Linear(in_features=120, out_features=84, bias=True)
+      (13): BatchNorm()
+      (14): Sigmoid()
+      (15): Linear(in_features=84, out_features=10, bias=True)
+    )
+
+
+
+```python
+#batch_size = 256  
+##cpu要调小batchsize
+batch_size=16
+
+def load_data_fashion_mnist(batch_size, resize=None, root='~/Data/FashionMNIST'):
+    """Download the fashion mnist dataset and then load into memory."""
+    trans = []
+    if resize:
+        trans.append(torchvision.transforms.Resize(size=resize))
+    trans.append(torchvision.transforms.ToTensor())
+    
+    transform = torchvision.transforms.Compose(trans)
+    mnist_train = torchvision.datasets.FashionMNIST(root=root, train=True, download=True, transform=transform)
+    mnist_test = torchvision.datasets.FashionMNIST(root=root, train=False, download=True, transform=transform)
+
+    train_iter = torch.utils.data.DataLoader(mnist_train, batch_size=batch_size, shuffle=True, num_workers=2)
+    test_iter = torch.utils.data.DataLoader(mnist_test, batch_size=batch_size, shuffle=False, num_workers=2)
+
+    return train_iter, test_iter
+train_iter, test_iter = load_data_fashion_mnist(batch_size)
+```
+
+
+```python
+lr, num_epochs = 0.001, 5
+optimizer = torch.optim.Adam(net.parameters(), lr=lr)
+d2l.train_ch5(net, train_iter, test_iter, batch_size, optimizer, device, num_epochs)
+```
+
+### 简洁实现
+
+
+```python
+net = nn.Sequential(
+            nn.Conv2d(1, 6, 5), # in_channels, out_channels, kernel_size
+            nn.BatchNorm2d(6),
+            nn.Sigmoid(),
+            nn.MaxPool2d(2, 2), # kernel_size, stride
+            nn.Conv2d(6, 16, 5),
+            nn.BatchNorm2d(16),
+            nn.Sigmoid(),
+            nn.MaxPool2d(2, 2),
+            d2l.FlattenLayer(),
+            nn.Linear(16*4*4, 120),
+            nn.BatchNorm1d(120),
+            nn.Sigmoid(),
+            nn.Linear(120, 84),
+            nn.BatchNorm1d(84),
+            nn.Sigmoid(),
+            nn.Linear(84, 10)
+        )
+
+optimizer = torch.optim.Adam(net.parameters(), lr=lr)
+d2l.train_ch5(net, train_iter, test_iter, batch_size, optimizer, device, num_epochs)
+```
+
+# 残差网络（ResNet）
+深度学习的问题：深度CNN网络达到一定深度后再一味地增加层数并不能带来进一步地分类性能提高，反而会招致网络收敛变得更慢，准确率也变得更差。
+### 残差块（Residual Block）
+恒等映射：  
+左边：f(x)=x                                                  
+右边：f(x)-x=0 （易于捕捉恒等映射的细微波动）
+
+![Image Name](https://cdn.kesci.com/upload/image/q5l8lhnot4.png?imageView2/0/w/600/h/600)
+
+在残差块中，输⼊可通过跨层的数据线路更快 地向前传播。
+
+
+```python
+class Residual(nn.Module):  # 本类已保存在d2lzh_pytorch包中方便以后使用
+    #可以设定输出通道数、是否使用额外的1x1卷积层来修改通道数以及卷积层的步幅。
+    def __init__(self, in_channels, out_channels, use_1x1conv=False, stride=1):
+        super(Residual, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, stride=stride)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
+        if use_1x1conv:
+            self.conv3 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride)
+        else:
+            self.conv3 = None
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+
+    def forward(self, X):
+        Y = F.relu(self.bn1(self.conv1(X)))
+        Y = self.bn2(self.conv2(Y))
+        if self.conv3:
+            X = self.conv3(X)
+        return F.relu(Y + X)
+```
+
+
+```python
+blk = Residual(3, 3)
+X = torch.rand((4, 3, 6, 6))
+blk(X).shape # torch.Size([4, 3, 6, 6])
+```
+
+
+
+
+    torch.Size([4, 3, 6, 6])
+
+
+
+
+```python
+blk = Residual(3, 6, use_1x1conv=True, stride=2)
+blk(X).shape # torch.Size([4, 6, 3, 3])
+```
+
+
+
+
+    torch.Size([4, 6, 3, 3])
+
+
+
+### ResNet模型
+卷积(64,7x7,3)  
+批量一体化  
+最大池化(3x3,2)  
+
+残差块x4 (通过步幅为2的残差块在每个模块之间减小高和宽)
+
+全局平均池化
+
+全连接
+
+
+```python
+net = nn.Sequential(
+        nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3),
+        nn.BatchNorm2d(64), 
+        nn.ReLU(),
+        nn.MaxPool2d(kernel_size=3, stride=2, padding=1))
+```
+
+
+```python
+def resnet_block(in_channels, out_channels, num_residuals, first_block=False):
+    if first_block:
+        assert in_channels == out_channels # 第一个模块的通道数同输入通道数一致
+    blk = []
+    for i in range(num_residuals):
+        if i == 0 and not first_block:
+            blk.append(Residual(in_channels, out_channels, use_1x1conv=True, stride=2))
+        else:
+            blk.append(Residual(out_channels, out_channels))
+    return nn.Sequential(*blk)
+
+net.add_module("resnet_block1", resnet_block(64, 64, 2, first_block=True))
+net.add_module("resnet_block2", resnet_block(64, 128, 2))
+net.add_module("resnet_block3", resnet_block(128, 256, 2))
+net.add_module("resnet_block4", resnet_block(256, 512, 2))
+```
+
+
+```python
+net.add_module("global_avg_pool", d2l.GlobalAvgPool2d()) # GlobalAvgPool2d的输出: (Batch, 512, 1, 1)
+net.add_module("fc", nn.Sequential(d2l.FlattenLayer(), nn.Linear(512, 10))) 
+```
+
+
+```python
+X = torch.rand((1, 1, 224, 224))
+for name, layer in net.named_children():
+    X = layer(X)
+    print(name, ' output shape:\t', X.shape)
+```
+
+    0  output shape:	 torch.Size([1, 64, 112, 112])
+    1  output shape:	 torch.Size([1, 64, 112, 112])
+    2  output shape:	 torch.Size([1, 64, 112, 112])
+    3  output shape:	 torch.Size([1, 64, 56, 56])
+    resnet_block1  output shape:	 torch.Size([1, 64, 56, 56])
+    resnet_block2  output shape:	 torch.Size([1, 128, 28, 28])
+    resnet_block3  output shape:	 torch.Size([1, 256, 14, 14])
+    resnet_block4  output shape:	 torch.Size([1, 512, 7, 7])
+    global_avg_pool  output shape:	 torch.Size([1, 512, 1, 1])
+    fc  output shape:	 torch.Size([1, 10])
+
+
+
+```python
+lr, num_epochs = 0.001, 5
+optimizer = torch.optim.Adam(net.parameters(), lr=lr)
+d2l.train_ch5(net, train_iter, test_iter, batch_size, optimizer, device, num_epochs)
+```
+
+# 稠密连接网络（DenseNet）
+
+![Image Name](https://cdn.kesci.com/upload/image/q5l8mi78yz.png?imageView2/0/w/600/h/600)
+
+###主要构建模块：  
+稠密块（dense block）： 定义了输入和输出是如何连结的。  
+过渡层（transition layer）：用来控制通道数，使之不过大。
+### 稠密块
+
+
+```python
+def conv_block(in_channels, out_channels):
+    blk = nn.Sequential(nn.BatchNorm2d(in_channels), 
+                        nn.ReLU(),
+                        nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1))
+    return blk
+
+class DenseBlock(nn.Module):
+    def __init__(self, num_convs, in_channels, out_channels):
+        super(DenseBlock, self).__init__()
+        net = []
+        for i in range(num_convs):
+            in_c = in_channels + i * out_channels
+            net.append(conv_block(in_c, out_channels))
+        self.net = nn.ModuleList(net)
+        self.out_channels = in_channels + num_convs * out_channels # 计算输出通道数
+
+    def forward(self, X):
+        for blk in self.net:
+            Y = blk(X)
+            X = torch.cat((X, Y), dim=1)  # 在通道维上将输入和输出连结
+        return X
+```
+
+
+```python
+blk = DenseBlock(2, 3, 10)
+X = torch.rand(4, 3, 8, 8)
+Y = blk(X)
+Y.shape # torch.Size([4, 23, 8, 8])
+```
+
+
+
+
+    torch.Size([4, 23, 8, 8])
+
+
+
+### 过渡层
+$1\times1$卷积层：来减小通道数  
+步幅为2的平均池化层：减半高和宽
+
+
+```python
+def transition_block(in_channels, out_channels):
+    blk = nn.Sequential(
+            nn.BatchNorm2d(in_channels), 
+            nn.ReLU(),
+            nn.Conv2d(in_channels, out_channels, kernel_size=1),
+            nn.AvgPool2d(kernel_size=2, stride=2))
+    return blk
+
+blk = transition_block(23, 10)
+blk(Y).shape # torch.Size([4, 10, 4, 4])
+```
+
+
+
+
+    torch.Size([4, 10, 4, 4])
+
+
+
+### DenseNet模型
+
+
+```python
+net = nn.Sequential(
+        nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3),
+        nn.BatchNorm2d(64), 
+        nn.ReLU(),
+        nn.MaxPool2d(kernel_size=3, stride=2, padding=1))
+```
+
+
+```python
+num_channels, growth_rate = 64, 32  # num_channels为当前的通道数
+num_convs_in_dense_blocks = [4, 4, 4, 4]
+
+for i, num_convs in enumerate(num_convs_in_dense_blocks):
+    DB = DenseBlock(num_convs, num_channels, growth_rate)
+    net.add_module("DenseBlosk_%d" % i, DB)
+    # 上一个稠密块的输出通道数
+    num_channels = DB.out_channels
+    # 在稠密块之间加入通道数减半的过渡层
+    if i != len(num_convs_in_dense_blocks) - 1:
+        net.add_module("transition_block_%d" % i, transition_block(num_channels, num_channels // 2))
+        num_channels = num_channels // 2
+```
+
+
+```python
+net.add_module("BN", nn.BatchNorm2d(num_channels))
+net.add_module("relu", nn.ReLU())
+net.add_module("global_avg_pool", d2l.GlobalAvgPool2d()) # GlobalAvgPool2d的输出: (Batch, num_channels, 1, 1)
+net.add_module("fc", nn.Sequential(d2l.FlattenLayer(), nn.Linear(num_channels, 10))) 
+
+X = torch.rand((1, 1, 96, 96))
+for name, layer in net.named_children():
+    X = layer(X)
+    print(name, ' output shape:\t', X.shape)
+```
+
+    0  output shape:	 torch.Size([1, 64, 48, 48])
+    1  output shape:	 torch.Size([1, 64, 48, 48])
+    2  output shape:	 torch.Size([1, 64, 48, 48])
+    3  output shape:	 torch.Size([1, 64, 24, 24])
+    DenseBlosk_0  output shape:	 torch.Size([1, 192, 24, 24])
+    transition_block_0  output shape:	 torch.Size([1, 96, 12, 12])
+    DenseBlosk_1  output shape:	 torch.Size([1, 224, 12, 12])
+    transition_block_1  output shape:	 torch.Size([1, 112, 6, 6])
+    DenseBlosk_2  output shape:	 torch.Size([1, 240, 6, 6])
+    transition_block_2  output shape:	 torch.Size([1, 120, 3, 3])
+    DenseBlosk_3  output shape:	 torch.Size([1, 248, 3, 3])
+    BN  output shape:	 torch.Size([1, 248, 3, 3])
+    relu  output shape:	 torch.Size([1, 248, 3, 3])
+    global_avg_pool  output shape:	 torch.Size([1, 248, 1, 1])
+    fc  output shape:	 torch.Size([1, 10])
+
+
+
+```python
+#batch_size = 256
+batch_size=16
+# 如出现“out of memory”的报错信息，可减小batch_size或resize
+train_iter, test_iter =load_data_fashion_mnist(batch_size, resize=96)
+lr, num_epochs = 0.001, 5
+optimizer = torch.optim.Adam(net.parameters(), lr=lr)
+d2l.train_ch5(net, train_iter, test_iter, batch_size, optimizer, device, num_epochs)
+```
+
+
+
+# 优化与深度学习
+
+## 优化与估计
+
+尽管优化方法可以最小化深度学习中的损失函数值，但本质上优化方法达到的目标与深度学习的目标并不相同。
+- 优化方法目标：训练集损失函数值
+- 深度学习目标：测试集损失函数值（泛化性）
+
+
+```python
+%matplotlib inline
+import sys
+sys.path.append('/home/kesci/input')
+import d2lzh1981 as d2l
+from mpl_toolkits import mplot3d # 三维画图
+import numpy as np
+```
+
+
+```python
+def f(x): return x * np.cos(np.pi * x)
+def g(x): return f(x) + 0.2 * np.cos(5 * np.pi * x)
+
+d2l.set_figsize((5, 3))
+x = np.arange(0.5, 1.5, 0.01)
+fig_f, = d2l.plt.plot(x, f(x),label="train error")
+fig_g, = d2l.plt.plot(x, g(x),'--', c='purple', label="test error")
+fig_f.axes.annotate('empirical risk', (1.0, -1.2), (0.5, -1.1),arrowprops=dict(arrowstyle='->'))
+fig_g.axes.annotate('expected risk', (1.1, -1.05), (0.95, -0.5),arrowprops=dict(arrowstyle='->'))
+d2l.plt.xlabel('x')
+d2l.plt.ylabel('risk')
+d2l.plt.legend(loc="upper right")
+```
+
+## 优化在深度学习中的挑战
+1. 局部最小值
+2. 鞍点
+3. 梯度消失
+
+### 局部最小值
+
+
+$$
+f(x) = x\cos \pi x
+$$
+
+
+
+```python
+def f(x):
+    return x * np.cos(np.pi * x)
+
+d2l.set_figsize((4.5, 2.5))
+x = np.arange(-1.0, 2.0, 0.1)
+fig,  = d2l.plt.plot(x, f(x))
+fig.axes.annotate('local minimum', xy=(-0.3, -0.25), xytext=(-0.77, -1.0),
+                  arrowprops=dict(arrowstyle='->'))
+fig.axes.annotate('global minimum', xy=(1.1, -0.95), xytext=(0.6, 0.8),
+                  arrowprops=dict(arrowstyle='->'))
+d2l.plt.xlabel('x')
+d2l.plt.ylabel('f(x)');
+```
+
+
+<img src="https://cdn.kesci.com/rt_upload/4965DB27A9A347E58616D03D993E961F/q5p1i9it7u.svg">
+
+
+### 鞍点
+
+
+```python
+x = np.arange(-2.0, 2.0, 0.1)
+fig, = d2l.plt.plot(x, x**3)
+fig.axes.annotate('saddle point', xy=(0, -0.2), xytext=(-0.52, -5.0),
+                  arrowprops=dict(arrowstyle='->'))
+d2l.plt.xlabel('x')
+d2l.plt.ylabel('f(x)');
+```
+
+
+<img src="https://cdn.kesci.com/rt_upload/02890A049EE14E1D91FD5198DEDA3FFD/q5p1inxfx6.svg">
+
+
+
+$$
+A=\left[\begin{array}{cccc}{\frac{\partial^{2} f}{\partial x_{1}^{2}}} & {\frac{\partial^{2} f}{\partial x_{1} \partial x_{2}}} & {\cdots} & {\frac{\partial^{2} f}{\partial x_{1} \partial x_{n}}} \\ {\frac{\partial^{2} f}{\partial x_{2} \partial x_{1}}} & {\frac{\partial^{2} f}{\partial x_{2}^{2}}} & {\cdots} & {\frac{\partial^{2} f}{\partial x_{2} \partial x_{n}}} \\ {\vdots} & {\vdots} & {\ddots} & {\vdots} \\ {\frac{\partial^{2} f}{\partial x_{n} \partial x_{1}}} & {\frac{\partial^{2} f}{\partial x_{n} \partial x_{2}}} & {\cdots} & {\frac{\partial^{2} f}{\partial x_{n}^{2}}}\end{array}\right]
+$$
+
+
+e.g.
+
+
+```python
+x, y = np.mgrid[-1: 1: 31j, -1: 1: 31j]
+z = x**2 - y**2
+
+d2l.set_figsize((6, 4))
+ax = d2l.plt.figure().add_subplot(111, projection='3d')
+ax.plot_wireframe(x, y, z, **{'rstride': 2, 'cstride': 2})
+ax.plot([0], [0], [0], 'ro', markersize=10)
+ticks = [-1,  0, 1]
+d2l.plt.xticks(ticks)
+d2l.plt.yticks(ticks)
+ax.set_zticks(ticks)
+d2l.plt.xlabel('x')
+d2l.plt.ylabel('y');
+```
+
+
+<img src="https://cdn.kesci.com/rt_upload/974B5BA9119844BD95F3E6DE8FECFE15/q5p1j9cqca.svg">
+
+
+### 梯度消失
+
+
+```python
+x = np.arange(-2.0, 5.0, 0.01)
+fig, = d2l.plt.plot(x, np.tanh(x))
+d2l.plt.xlabel('x')
+d2l.plt.ylabel('f(x)')
+fig.axes.annotate('vanishing gradient', (4, 1), (2, 0.0) ,arrowprops=dict(arrowstyle='->'))
+```
+
+
+
+
+    Text(2, 0.0, 'vanishing gradient')
+
+
+
+
+<img src="https://cdn.kesci.com/rt_upload/FD4109A263F4455EAD8C67C5DC37C027/q5p1jlrkib.svg">
+
+
+# 凸性 （Convexity）
+
+## 基础
+
+### 集合
+
+![Image Name](https://cdn.kesci.com/upload/image/q5p1yhqzm8.png?imageView2/0/w/640/h/640)
+![Image Name](https://cdn.kesci.com/upload/image/q5p1xz9gvz.png?imageView2/0/w/640/h/640)
+![Image Name](https://cdn.kesci.com/upload/image/q5p1yue9fu.png?imageView2/0/w/320/h/320)
+
+
+
+### 函数
+
+
+$$
+\lambda f(x)+(1-\lambda) f\left(x^{\prime}\right) \geq f\left(\lambda x+(1-\lambda) x^{\prime}\right)
+$$
+
+
+
+```python
+def f(x):
+    return 0.5 * x**2  # Convex
+
+def g(x):
+    return np.cos(np.pi * x)  # Nonconvex
+
+def h(x):
+    return np.exp(0.5 * x)  # Convex
+
+x, segment = np.arange(-2, 2, 0.01), np.array([-1.5, 1])
+d2l.use_svg_display()
+_, axes = d2l.plt.subplots(1, 3, figsize=(9, 3))
+
+for ax, func in zip(axes, [f, g, h]):
+    ax.plot(x, func(x))
+    ax.plot(segment, func(segment),'--', color="purple")
+    # d2l.plt.plot([x, segment], [func(x), func(segment)], axes=ax)
+```
+
+
+<img src="https://cdn.kesci.com/rt_upload/507C2126C2654EAC8A2C220434232A3F/q5p1tqgzh5.svg">
+
+
+### Jensen 不等式
+
+
+$$
+\sum_{i} \alpha_{i} f\left(x_{i}\right) \geq f\left(\sum_{i} \alpha_{i} x_{i}\right) \text { and } E_{x}[f(x)] \geq f\left(E_{x}[x]\right)
+$$
+
+
+---
+
+## 性质
+1. 无局部极小值
+2. 与凸集的关系
+3. 二阶条件
+
+###  无局部最小值
+
+证明：假设存在 $x \in X$ 是局部最小值，则存在全局最小值 $x' \in X$, 使得 $f(x) > f(x')$, 则对 $\lambda \in(0,1]$:
+
+$$
+f(x)>\lambda f(x)+(1-\lambda) f(x^{\prime}) \geq f(\lambda x+(1-\lambda) x^{\prime})
+$$
+
+
+### 与凸集的关系
+
+对于凸函数 $f(x)$，定义集合 $S_{b}:=\{x | x \in X \text { and } f(x) \leq b\}$，则集合 $S_b$ 为凸集
+
+证明：对于点 $x,x' \in S_b$, 有 $f\left(\lambda x+(1-\lambda) x^{\prime}\right) \leq \lambda f(x)+(1-\lambda) f\left(x^{\prime}\right) \leq b$, 故 $\lambda x+(1-\lambda) x^{\prime} \in S_{b}$
+
+$f(x, y)=0.5 x^{2}+\cos (2 \pi y)$
+
+
+```python
+x, y = np.meshgrid(np.linspace(-1, 1, 101), np.linspace(-1, 1, 101),
+                   indexing='ij')
+
+z = x**2 + 0.5 * np.cos(2 * np.pi * y)
+
+# Plot the 3D surface
+d2l.set_figsize((6, 4))
+ax = d2l.plt.figure().add_subplot(111, projection='3d')
+ax.plot_wireframe(x, y, z, **{'rstride': 10, 'cstride': 10})
+ax.contour(x, y, z, offset=-1)
+ax.set_zlim(-1, 1.5)
+
+# Adjust labels
+for func in [d2l.plt.xticks, d2l.plt.yticks, ax.set_zticks]:
+    func([-1, 0, 1])
+```
+
+
+<img src="https://cdn.kesci.com/rt_upload/F55A64B60E0743CEA4945D3AA29C6993/q5p1wzmavw.svg">
+
+
+### 凸函数与二阶导数
+
+$f^{''}(x) \ge 0 \Longleftrightarrow f(x)$ 是凸函数
+
+**必要性 ($\Leftarrow$):**
+
+对于凸函数：
+
+$$
+\frac{1}{2} f(x+\epsilon)+\frac{1}{2} f(x-\epsilon) \geq f\left(\frac{x+\epsilon}{2}+\frac{x-\epsilon}{2}\right)=f(x)
+$$
+
+故:
+
+$$
+f^{\prime \prime}(x)=\lim _{\varepsilon \rightarrow 0} \frac{\frac{f(x+\epsilon) - f(x)}{\epsilon}-\frac{f(x) - f(x-\epsilon)}{\epsilon}}{\epsilon}
+$$
+
+
+$$
+f^{\prime \prime}(x)=\lim _{\varepsilon \rightarrow 0} \frac{f(x+\epsilon)+f(x-\epsilon)-2 f(x)}{\epsilon^{2}} \geq 0
+$$
+
+
+**充分性 ($\Rightarrow$):**
+
+令 $a < x < b$ 为 $f(x)$ 上的三个点，由拉格朗日中值定理:
+
+$$
+\begin{array}{l}{f(x)-f(a)=(x-a) f^{\prime}(\alpha) \text { for some } \alpha \in[a, x] \text { and }} \\ {f(b)-f(x)=(b-x) f^{\prime}(\beta) \text { for some } \beta \in[x, b]}\end{array}
+$$
+
+
+根据单调性，有 $f^{\prime}(\beta) \geq f^{\prime}(\alpha)$, 故:
+
+$$
+\begin{aligned} f(b)-f(a) &=f(b)-f(x)+f(x)-f(a) \\ &=(b-x) f^{\prime}(\beta)+(x-a) f^{\prime}(\alpha) \\ & \geq(b-a) f^{\prime}(\alpha) \end{aligned}
+$$
+
+
+```python
+def f(x):
+    return 0.5 * x**2
+
+x = np.arange(-2, 2, 0.01)
+axb, ab = np.array([-1.5, -0.5, 1]), np.array([-1.5, 1])
+
+d2l.set_figsize((3.5, 2.5))
+fig_x, = d2l.plt.plot(x, f(x))
+fig_axb, = d2l.plt.plot(axb, f(axb), '-.',color="purple")
+fig_ab, = d2l.plt.plot(ab, f(ab),'g-.')
+
+fig_x.axes.annotate('a', (-1.5, f(-1.5)), (-1.5, 1.5),arrowprops=dict(arrowstyle='->'))
+fig_x.axes.annotate('b', (1, f(1)), (1, 1.5),arrowprops=dict(arrowstyle='->'))
+fig_x.axes.annotate('x', (-0.5, f(-0.5)), (-1.5, f(-0.5)),arrowprops=dict(arrowstyle='->'))
+```
+
+
+
+
+    Text(-1.5, 0.125, 'x')
+
+
+
+
+<img src="https://cdn.kesci.com/rt_upload/1084E24A125F422180CC5907909885E1/q5p21ulbo9.svg">
+
+
+## 限制条件
+
+
+$$
+\begin{array}{l}{\underset{\mathbf{x}}{\operatorname{minimize}} f(\mathbf{x})} \\ {\text { subject to } c_{i}(\mathbf{x}) \leq 0 \text { for all } i \in\{1, \ldots, N\}}\end{array}
+$$
+
+
+### 拉格朗日乘子法
+[Boyd & Vandenberghe, 2004](https://d2l.ai/chapter_references/zreferences.html#boyd-vandenberghe-2004)
+
+
+$$
+L(\mathbf{x}, \alpha)=f(\mathbf{x})+\sum_{i} \alpha_{i} c_{i}(\mathbf{x}) \text { where } \alpha_{i} \geq 0
+$$
+
+
+### 惩罚项
+
+欲使 $c_i(x) \leq 0$, 将项 $\alpha_ic_i(x)$ 加入目标函数，如多层感知机章节中的 $\frac{\lambda}{2} ||w||^2$
+
+### 投影
+
+
+$$
+\operatorname{Proj}_{X}(\mathbf{x})=\underset{\mathbf{x}^{\prime} \in X}{\operatorname{argmin}}\left\|\mathbf{x}-\mathbf{x}^{\prime}\right\|_{2}
+$$
+
+
+
+![Image Name](https://cdn.kesci.com/upload/image/q5p241skoc.png?imageView2/0/w/640/h/640)
+
+
+
+# 梯度下降 
+（[Boyd & Vandenberghe, 2004](https://d2l.ai/chapter_references/zreferences.html#boyd-vandenberghe-2004)）
+
+
+```python
+%matplotlib inline
+import numpy as np
+import torch
+import time
+from torch import nn, optim
+import math
+import sys
+sys.path.append('/home/kesci/input')
+import d2lzh1981 as d2l
+```
+
+## 一维梯度下降
+
+**证明：沿梯度反方向移动自变量可以减小函数值**
+
+泰勒展开：
+
+$$
+f(x+\epsilon)=f(x)+\epsilon f^{\prime}(x)+\mathcal{O}\left(\epsilon^{2}\right)
+$$
+
+代入沿梯度方向的移动量 $\eta f^{\prime}(x)$：
+
+$$
+f\left(x-\eta f^{\prime}(x)\right)=f(x)-\eta f^{\prime 2}(x)+\mathcal{O}\left(\eta^{2} f^{\prime 2}(x)\right)
+$$
+
+$$
+f\left(x-\eta f^{\prime}(x)\right) \lesssim f(x)
+$$
+
+
+$$
+x \leftarrow x-\eta f^{\prime}(x)
+$$
+
+
+e.g.
+
+$$
+f(x) = x^2
+$$
+
+
+
+```python
+def f(x):
+    return x**2  # Objective function
+
+def gradf(x):
+    return 2 * x  # Its derivative
+
+def gd(eta):
+    x = 10
+    results = [x]
+    for i in range(10):
+        x -= eta * gradf(x)
+        results.append(x)
+    print('epoch 10, x:', x)
+    return results
+
+res = gd(0.2)
+```
+
+    epoch 10, x: 0.06046617599999997
+
+
+
+```python
+def show_trace(res):
+    n = max(abs(min(res)), abs(max(res)))
+    f_line = np.arange(-n, n, 0.01)
+    d2l.set_figsize((3.5, 2.5))
+    d2l.plt.plot(f_line, [f(x) for x in f_line],'-')
+    d2l.plt.plot(res, [f(x) for x in res],'-o')
+    d2l.plt.xlabel('x')
+    d2l.plt.ylabel('f(x)')
+    
+
+show_trace(res)
+```
+
+
+<img src="https://cdn.kesci.com/rt_upload/474742EF0BCD428780FEBB6BA93E1785/q5oim9v02y.svg">
+
+
+### 学习率
+
+
+```python
+show_trace(gd(0.05))
+```
+
+    epoch 10, x: 3.4867844009999995
+
+
+
+<img src="https://cdn.kesci.com/rt_upload/63F2E327184549D38E1C1323766EBA35/q5oim918r4.svg">
+
+
+
+```python
+show_trace(gd(1.1))
+```
+
+    epoch 10, x: 61.917364224000096
+
+
+
+<img src="https://cdn.kesci.com/rt_upload/540302EC5E434318809B895B453AABE4/q5oim98mjm.svg">
+
+
+### 局部极小值
+
+e.g.
+
+$$
+f(x) = x\cos cx
+$$
+
+
+
+```python
+c = 0.15 * np.pi
+
+def f(x):
+    return x * np.cos(c * x)
+
+def gradf(x):
+    return np.cos(c * x) - c * x * np.sin(c * x)
+
+show_trace(gd(2))
+```
+
+    epoch 10, x: -1.528165927635083
+
+
+
+<img src="https://cdn.kesci.com/rt_upload/8372CFD30F534D63B847DED05E6BC1E7/q5oim9yozt.svg">
+
+
+## 多维梯度下降
+
+
+$$
+\nabla f(\mathbf{x})=\left[\frac{\partial f(\mathbf{x})}{\partial x_{1}}, \frac{\partial f(\mathbf{x})}{\partial x_{2}}, \dots, \frac{\partial f(\mathbf{x})}{\partial x_{d}}\right]^{\top}
+$$
+
+$$
+f(\mathbf{x}+\epsilon)=f(\mathbf{x})+\epsilon^{\top} \nabla f(\mathbf{x})+\mathcal{O}\left(\|\epsilon\|^{2}\right)
+$$
+
+$$
+\mathbf{x} \leftarrow \mathbf{x}-\eta \nabla f(\mathbf{x})
+$$
+
+
+```python
+def train_2d(trainer, steps=20):
+    x1, x2 = -5, -2
+    results = [(x1, x2)]
+    for i in range(steps):
+        x1, x2 = trainer(x1, x2)
+        results.append((x1, x2))
+    print('epoch %d, x1 %f, x2 %f' % (i + 1, x1, x2))
+    return results
+
+def show_trace_2d(f, results): 
+    d2l.plt.plot(*zip(*results), '-o', color='#ff7f0e')
+    x1, x2 = np.meshgrid(np.arange(-5.5, 1.0, 0.1), np.arange(-3.0, 1.0, 0.1))
+    d2l.plt.contour(x1, x2, f(x1, x2), colors='#1f77b4')
+    d2l.plt.xlabel('x1')
+    d2l.plt.ylabel('x2')
+```
+
+
+$$
+f(x) = x_1^2 + 2x_2^2
+$$
+
+
+
+```python
+eta = 0.1
+
+def f_2d(x1, x2):  # 目标函数
+    return x1 ** 2 + 2 * x2 ** 2
+
+def gd_2d(x1, x2):
+    return (x1 - eta * 2 * x1, x2 - eta * 4 * x2)
+
+show_trace_2d(f_2d, train_2d(gd_2d))
+```
+
+    epoch 20, x1 -0.057646, x2 -0.000073
+
+
+
+<img src="https://cdn.kesci.com/rt_upload/7C4F69BAE0E2424D80BC99B0867DB110/q5oim9cca5.svg">
+
+
+## 自适应方法
+
+### 牛顿法
+
+在 $x + \epsilon$ 处泰勒展开：
+
+$$
+f(\mathbf{x}+\epsilon)=f(\mathbf{x})+\epsilon^{\top} \nabla f(\mathbf{x})+\frac{1}{2} \epsilon^{\top} \nabla \nabla^{\top} f(\mathbf{x}) \epsilon+\mathcal{O}\left(\|\epsilon\|^{3}\right)
+$$
+
+最小值点处满足: $\nabla f(\mathbf{x})=0$, 即我们希望 $\nabla f(\mathbf{x} + \epsilon)=0$, 对上式关于 $\epsilon$ 求导，忽略高阶无穷小，有：
+
+$$
+\nabla f(\mathbf{x})+\boldsymbol{H}_{f} \boldsymbol{\epsilon}=0 \text { and hence } \epsilon=-\boldsymbol{H}_{f}^{-1} \nabla f(\mathbf{x})
+$$
+
+
+
+```python
+c = 0.5
+
+def f(x):
+    return np.cosh(c * x)  # Objective
+
+def gradf(x):
+    return c * np.sinh(c * x)  # Derivative
+
+def hessf(x):
+    return c**2 * np.cosh(c * x)  # Hessian
+
+# Hide learning rate for now
+def newton(eta=1):
+    x = 10
+    results = [x]
+    for i in range(10):
+        x -= eta * gradf(x) / hessf(x)
+        results.append(x)
+    print('epoch 10, x:', x)
+    return results
+
+show_trace(newton())
+```
+
+    epoch 10, x: 0.0
+
+
+
+<img src="https://cdn.kesci.com/rt_upload/93AB8E85F6264E129E9F622747D059FD/q5oima7f51.svg">
+
+
+
+```python
+c = 0.15 * np.pi
+
+def f(x):
+    return x * np.cos(c * x)
+
+def gradf(x):
+    return np.cos(c * x) - c * x * np.sin(c * x)
+
+def hessf(x):
+    return - 2 * c * np.sin(c * x) - x * c**2 * np.cos(c * x)
+
+show_trace(newton())
+```
+
+    epoch 10, x: 26.83413291324767
+
+
+
+<img src="https://cdn.kesci.com/rt_upload/6F40E126C3FD4E059463B6B5E1B809E5/q5oimahwv7.svg">
+
+
+
+```python
+show_trace(newton(0.5))
+```
+
+    epoch 10, x: 7.269860168684531
+
+
+
+<img src="https://cdn.kesci.com/rt_upload/5FE9DDAA901B422181ECFBFB171DDDF0/q5oimau6rq.svg">
+
+
+### 收敛性分析
+
+只考虑在函数为凸函数, 且最小值点上 $f''(x^*) > 0$ 时的收敛速度：
+
+令 $x_k$ 为第 $k$ 次迭代后 $x$ 的值， $e_{k}:=x_{k}-x^{*}$ 表示 $x_k$ 到最小值点 $x^{*}$ 的距离，由 $f'(x^{*}) = 0$:
+
+$$
+0=f^{\prime}\left(x_{k}-e_{k}\right)=f^{\prime}\left(x_{k}\right)-e_{k} f^{\prime \prime}\left(x_{k}\right)+\frac{1}{2} e_{k}^{2} f^{\prime \prime \prime}\left(\xi_{k}\right) \text{for some } \xi_{k} \in\left[x_{k}-e_{k}, x_{k}\right]
+$$
+
+两边除以 $f''(x_k)$, 有：
+
+$$
+e_{k}-f^{\prime}\left(x_{k}\right) / f^{\prime \prime}\left(x_{k}\right)=\frac{1}{2} e_{k}^{2} f^{\prime \prime \prime}\left(\xi_{k}\right) / f^{\prime \prime}\left(x_{k}\right)
+$$
+
+代入更新方程 $x_{k+1} = x_{k} - f^{\prime}\left(x_{k}\right) / f^{\prime \prime}\left(x_{k}\right)$, 得到：
+
+$$
+x_k - x^{*} - f^{\prime}\left(x_{k}\right) / f^{\prime \prime}\left(x_{k}\right) =\frac{1}{2} e_{k}^{2} f^{\prime \prime \prime}\left(\xi_{k}\right) / f^{\prime \prime}\left(x_{k}\right)
+$$
+
+
+$$
+x_{k+1} - x^{*} = e_{k+1} = \frac{1}{2} e_{k}^{2} f^{\prime \prime \prime}\left(\xi_{k}\right) / f^{\prime \prime}\left(x_{k}\right)
+$$
+
+当 $\frac{1}{2} f^{\prime \prime \prime}\left(\xi_{k}\right) / f^{\prime \prime}\left(x_{k}\right) \leq c$ 时，有:
+
+$$
+e_{k+1} \leq c e_{k}^{2}
+$$
+
+
+### 预处理 （Heissan阵辅助梯度下降）
+
+
+$$
+\mathbf{x} \leftarrow \mathbf{x}-\eta \operatorname{diag}\left(H_{f}\right)^{-1} \nabla \mathbf{x}
+$$
+
+
+### 梯度下降与线性搜索（共轭梯度法）
+
+# 随机梯度下降
+
+## 随机梯度下降参数更新
+
+对于有 $n$ 个样本对训练数据集，设 $f_i(x)$ 是第 $i$ 个样本的损失函数, 则目标函数为:
+
+$$
+f(\mathbf{x})=\frac{1}{n} \sum_{i=1}^{n} f_{i}(\mathbf{x})
+$$
+
+其梯度为:
+
+$$
+\nabla f(\mathbf{x})=\frac{1}{n} \sum_{i=1}^{n} \nabla f_{i}(\mathbf{x})
+$$
+
+使用该梯度的一次更新的时间复杂度为 $\mathcal{O}(n)$
+
+随机梯度下降更新公式 $\mathcal{O}(1)$:
+
+$$
+\mathbf{x} \leftarrow \mathbf{x}-\eta \nabla f_{i}(\mathbf{x})
+$$
+
+且有：
+
+$$
+\mathbb{E}_{i} \nabla f_{i}(\mathbf{x})=\frac{1}{n} \sum_{i=1}^{n} \nabla f_{i}(\mathbf{x})=\nabla f(\mathbf{x})
+$$
+
+
+e.g. 
+
+$$
+f(x_1, x_2) = x_1^2 + 2 x_2^2
+$$
+
+
+
+```python
+def f(x1, x2):
+    return x1 ** 2 + 2 * x2 ** 2  # Objective
+
+def gradf(x1, x2):
+    return (2 * x1, 4 * x2)  # Gradient
+
+def sgd(x1, x2):  # Simulate noisy gradient
+    global lr  # Learning rate scheduler
+    (g1, g2) = gradf(x1, x2)  # Compute gradient
+    (g1, g2) = (g1 + np.random.normal(0.1), g2 + np.random.normal(0.1))
+    eta_t = eta * lr()  # Learning rate at time t
+    return (x1 - eta_t * g1, x2 - eta_t * g2)  # Update variables
+
+eta = 0.1
+lr = (lambda: 1)  # Constant learning rate
+show_trace_2d(f, train_2d(sgd, steps=50))
+
+```
+
+    epoch 50, x1 -0.027566, x2 0.137605
+
+
+
+<img src="https://cdn.kesci.com/rt_upload/4CB5541B156E4F0AB7E145B54C8E6EA0/q5oimaluhh.svg">
+
+
+## 动态学习率
+
+
+$$
+\begin{array}{ll}{\eta(t)=\eta_{i} \text { if } t_{i} \leq t \leq t_{i+1}} & {\text { piecewise constant }} \\ {\eta(t)=\eta_{0} \cdot e^{-\lambda t}} & {\text { exponential }} \\ {\eta(t)=\eta_{0} \cdot(\beta t+1)^{-\alpha}} & {\text { polynomial }}\end{array}
+$$
+
+
+
+```python
+def exponential():
+    global ctr
+    ctr += 1
+    return math.exp(-0.1 * ctr)
+
+ctr = 1
+lr = exponential  # Set up learning rate
+show_trace_2d(f, train_2d(sgd, steps=1000))
+```
+
+    epoch 1000, x1 -0.677947, x2 -0.089379
+
+
+
+<img src="https://cdn.kesci.com/rt_upload/7E2E2CF3EB3A4A2D90F41A070E1D008F/q5oimas9qm.svg">
+
+
+
+```python
+def polynomial():
+    global ctr
+    ctr += 1
+    return (1 + 0.1 * ctr)**(-0.5)
+
+ctr = 1
+lr = polynomial  # Set up learning rate
+show_trace_2d(f, train_2d(sgd, steps=50))
+```
+
+    epoch 50, x1 -0.095244, x2 -0.041674
+
+
+
+<img src="https://cdn.kesci.com/rt_upload/B3DF53CD6E1A458B836D2308F8263B58/q5oimapo7u.svg">
+
+
+# 小批量随机梯度下降
+
+## 读取数据
+[读取数据](https://archive.ics.uci.edu/ml/datasets/Airfoil+Self-Noise)
+
+
+```python
+def get_data_ch7():  # 本函数已保存在d2lzh_pytorch包中方便以后使用
+    data = np.genfromtxt('/home/kesci/input/airfoil4755/airfoil_self_noise.dat', delimiter='\t')
+    data = (data - data.mean(axis=0)) / data.std(axis=0) # 标准化
+    return torch.tensor(data[:1500, :-1], dtype=torch.float32), \
+           torch.tensor(data[:1500, -1], dtype=torch.float32) # 前1500个样本(每个样本5个特征)
+
+features, labels = get_data_ch7()
+features.shape
+```
+
+
+
+
+    torch.Size([1500, 5])
+
+
+
+
+```python
+import pandas as pd
+df = pd.read_csv('/home/kesci/input/airfoil4755/airfoil_self_noise.dat', delimiter='\t', header=None)
+df.head(10)
+```
+
+
+
+
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>0</th>
+      <th>1</th>
+      <th>2</th>
+      <th>3</th>
+      <th>4</th>
+      <th>5</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>0</td>
+      <td>800</td>
+      <td>0.0</td>
+      <td>0.3048</td>
+      <td>71.3</td>
+      <td>0.002663</td>
+      <td>126.201</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>1000</td>
+      <td>0.0</td>
+      <td>0.3048</td>
+      <td>71.3</td>
+      <td>0.002663</td>
+      <td>125.201</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>1250</td>
+      <td>0.0</td>
+      <td>0.3048</td>
+      <td>71.3</td>
+      <td>0.002663</td>
+      <td>125.951</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>1600</td>
+      <td>0.0</td>
+      <td>0.3048</td>
+      <td>71.3</td>
+      <td>0.002663</td>
+      <td>127.591</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>2000</td>
+      <td>0.0</td>
+      <td>0.3048</td>
+      <td>71.3</td>
+      <td>0.002663</td>
+      <td>127.461</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>2500</td>
+      <td>0.0</td>
+      <td>0.3048</td>
+      <td>71.3</td>
+      <td>0.002663</td>
+      <td>125.571</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td>3150</td>
+      <td>0.0</td>
+      <td>0.3048</td>
+      <td>71.3</td>
+      <td>0.002663</td>
+      <td>125.201</td>
+    </tr>
+    <tr>
+      <td>7</td>
+      <td>4000</td>
+      <td>0.0</td>
+      <td>0.3048</td>
+      <td>71.3</td>
+      <td>0.002663</td>
+      <td>123.061</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td>5000</td>
+      <td>0.0</td>
+      <td>0.3048</td>
+      <td>71.3</td>
+      <td>0.002663</td>
+      <td>121.301</td>
+    </tr>
+    <tr>
+      <td>9</td>
+      <td>6300</td>
+      <td>0.0</td>
+      <td>0.3048</td>
+      <td>71.3</td>
+      <td>0.002663</td>
+      <td>119.541</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+
+
+## 从零开始实现
+
+
+```python
+def sgd(params, states, hyperparams):
+    for p in params:
+        p.data -= hyperparams['lr'] * p.grad.data
+```
+
+
+```python
+# 本函数已保存在d2lzh_pytorch包中方便以后使用
+def train_ch7(optimizer_fn, states, hyperparams, features, labels,
+              batch_size=10, num_epochs=2):
+    # 初始化模型
+    net, loss = d2l.linreg, d2l.squared_loss
+    
+    w = torch.nn.Parameter(torch.tensor(np.random.normal(0, 0.01, size=(features.shape[1], 1)), dtype=torch.float32),
+                           requires_grad=True)
+    b = torch.nn.Parameter(torch.zeros(1, dtype=torch.float32), requires_grad=True)
+
+    def eval_loss():
+        return loss(net(features, w, b), labels).mean().item()
+
+    ls = [eval_loss()]
+    data_iter = torch.utils.data.DataLoader(
+        torch.utils.data.TensorDataset(features, labels), batch_size, shuffle=True)
+    
+    for _ in range(num_epochs):
+        start = time.time()
+        for batch_i, (X, y) in enumerate(data_iter):
+            l = loss(net(X, w, b), y).mean()  # 使用平均损失
+            
+            # 梯度清零
+            if w.grad is not None:
+                w.grad.data.zero_()
+                b.grad.data.zero_()
+                
+            l.backward()
+            optimizer_fn([w, b], states, hyperparams)  # 迭代模型参数
+            if (batch_i + 1) * batch_size % 100 == 0:
+                ls.append(eval_loss())  # 每100个样本记录下当前训练误差
+    # 打印结果和作图
+    print('loss: %f, %f sec per epoch' % (ls[-1], time.time() - start))
+    d2l.set_figsize()
+    d2l.plt.plot(np.linspace(0, num_epochs, len(ls)), ls)
+    d2l.plt.xlabel('epoch')
+    d2l.plt.ylabel('loss')
+```
+
+
+```python
+def train_sgd(lr, batch_size, num_epochs=2):
+    train_ch7(sgd, None, {'lr': lr}, features, labels, batch_size, num_epochs)
+```
+
+对比
+
+
+```python
+train_sgd(1, 1500, 6)
+```
+
+    loss: 0.244373, 0.009881 sec per epoch
+
+
+
+<img src="https://cdn.kesci.com/rt_upload/855ACC5ACA5A472F9BE384E668B84EB2/q5oj6bxc03.svg">
+
+
+
+```python
+train_sgd(0.005, 1)
+```
+
+    loss: 0.245968, 0.463836 sec per epoch
+
+
+
+<img src="https://cdn.kesci.com/rt_upload/223ADA73CFAB42EE87A9BFC9E6B709C2/q5oj6ckl5j.svg">
+
+
+
+```python
+train_sgd(0.05, 10)
+```
+
+    loss: 0.243900, 0.065017 sec per epoch
+
+
+
+<img src="https://cdn.kesci.com/rt_upload/BBA66FD2F352410F88CD4DB1FA37FCD7/q5oj6cw1e3.svg">
+
+
+## 简洁实现
+
+
+```python
+# 本函数与原书不同的是这里第一个参数优化器函数而不是优化器的名字
+# 例如: optimizer_fn=torch.optim.SGD, optimizer_hyperparams={"lr": 0.05}
+def train_pytorch_ch7(optimizer_fn, optimizer_hyperparams, features, labels,
+                    batch_size=10, num_epochs=2):
+    # 初始化模型
+    net = nn.Sequential(
+        nn.Linear(features.shape[-1], 1)
+    )
+    loss = nn.MSELoss()
+    optimizer = optimizer_fn(net.parameters(), **optimizer_hyperparams)
+
+    def eval_loss():
+        return loss(net(features).view(-1), labels).item() / 2
+
+    ls = [eval_loss()]
+    data_iter = torch.utils.data.DataLoader(
+        torch.utils.data.TensorDataset(features, labels), batch_size, shuffle=True)
+
+    for _ in range(num_epochs):
+        start = time.time()
+        for batch_i, (X, y) in enumerate(data_iter):
+            # 除以2是为了和train_ch7保持一致, 因为squared_loss中除了2
+            l = loss(net(X).view(-1), y) / 2 
+            
+            optimizer.zero_grad()
+            l.backward()
+            optimizer.step()
+            if (batch_i + 1) * batch_size % 100 == 0:
+                ls.append(eval_loss())
+    # 打印结果和作图
+    print('loss: %f, %f sec per epoch' % (ls[-1], time.time() - start))
+    d2l.set_figsize()
+    d2l.plt.plot(np.linspace(0, num_epochs, len(ls)), ls)
+    d2l.plt.xlabel('epoch')
+    d2l.plt.ylabel('loss')
+```
+
+
+```python
+train_pytorch_ch7(optim.SGD, {"lr": 0.05}, features, labels, 10)
+```
+
+    loss: 0.243770, 0.047664 sec per epoch
+
+
+
+<img src="https://cdn.kesci.com/rt_upload/0CD81A787CAA435C9EF0F8ED1208FFC4/q5oj6c1ds2.svg">
+
