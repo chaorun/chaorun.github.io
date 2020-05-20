@@ -59,7 +59,7 @@ for idx in range(arr.shape[1]):
 ```
 
 
-![png](output_5_0.png)
+![png](_posts/output_5_0.png)
 
 
 
