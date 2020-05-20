@@ -1,0 +1,202 @@
+---
+layout: post
+title:  "CV 赛题理解"
+date:   2020-05-20 16:34:47 +0800
+categories: jekyll update
+---
+
+# Task1 赛题理解
+
+## 读取数据
+
+这个程序运行在P100服务器上
+```python
+%matplotlib inline
+import json
+import sys
+sys.path.append('/home/suntianrui')
+from SoTinShuiLib import * 
+import matplotlib
+#matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import cv2
+```
+
+
+```python
+# 数据标注处理
+def parse_json(d):
+   arr = np.array([
+       d['top'], d['height'], d['left'],  d['width'], d['label']
+   ])
+   arr = arr.astype(int)
+   return arr
+train_json = json.load(open("data/mchar_train.json"))
+```
+
+
+```python
+img = cv2.imread('data/train_data/mchar_train/000000.png')
+arr = parse_json(train_json['000000.png'])
+plt.figure(figsize=(12, 12))
+plt.subplot(1, arr.shape[1]+1, 1)
+plt.imshow(img)
+plt.xticks([]); plt.yticks([])
+plt.show()
+```
+
+
+![png](output_4_0.png)
+
+
+
+```python
+for idx in range(arr.shape[1]):
+   plt.subplot(1, arr.shape[1]+1, idx+2)
+   plt.imshow(img[arr[0, idx]:arr[0, idx]+arr[1, idx],arr[2, idx]:arr[2, idx]+arr[3, idx]])
+   plt.title(arr[4, idx])
+   plt.xticks([]); plt.yticks([])
+```
+
+
+![png](output_5_0.png)
+
+
+
+```python
+
+```
+
+
+
+
+    array([ 77, 219, 246,  81,   1])
+
+
+
+
+```python
+def parse_json(d):
+   arr = np.array([
+       d['top'], d['height'], d['left'],  d['width'], d['label']
+   ])
+   arr = arr.astype(int)
+   return arr
+train_json = json.load(open("data/mchar_train.json"))
+```
+
+
+```python
+positions=arr.T
+```
+
+
+```python
+
+```
+
+
+```python
+idx=0
+plt.imshow(img[arr[0, idx]:arr[0, idx]+arr[1, idx],arr[2, idx]:arr[2, idx]+arr[3, idx]])
+```
+
+
+
+
+    <matplotlib.image.AxesImage at 0x7f8fda533748>
+
+
+
+
+![png](output_10_1.png)
+
+
+
+```python
+img[arr[0, idx]:arr[0, idx]+arr[1, idx],arr[2, idx]:arr[2, idx]+arr[3, idx]])
+```
+
+
+```python
+#arr[0, idx]:arr[0, idx]+arr[1, idx],arr[2, idx]:arr[2, idx]+arr[3, idx]
+```
+
+
+```python
+top,height,left,width,label=positions[0]
+```
+
+
+```python
+plt.imshow(img[top:top+height,left:left+width])
+```
+
+
+
+
+    <matplotlib.image.AxesImage at 0x7f8fd8cd4748>
+
+
+
+
+![png](output_14_1.png)
+
+
+
+```python
+
+```
+
+
+
+
+    array([[ 77,  81],
+           [219, 219],
+           [246, 323],
+           [ 81,  96],
+           [  1,   9]])
+
+
+
+
+```python
+i=0
+for name in train_json:
+    i=i+1
+    if i>10:
+        break
+    arr=parse_json(train_json[name])
+    for k in range(len(arr.T)):
+        top,height,left,width,label=arr.T[k]
+        print(name,top,height,left,width,label)
+```
+
+    000000.png 77 219 246 81 1
+    000000.png 81 219 323 96 9
+    000001.png 29 32 77 23 2
+    000001.png 25 32 98 26 3
+    000002.png 5 15 17 8 2
+    000002.png 5 15 25 9 5
+    000003.png 13 34 57 15 9
+    000003.png 13 34 72 13 3
+    000004.png 7 46 52 21 3
+    000004.png 10 46 74 15 1
+    000005.png 6 21 28 10 3
+    000005.png 8 21 38 11 3
+    000006.png 10 32 35 13 2
+    000006.png 11 32 47 13 8
+    000007.png 4 15 17 7 7
+    000007.png 4 15 25 6 4
+    000007.png 3 15 31 7 4
+    000008.png 4 24 19 14 1
+    000008.png 4 24 29 13 2
+    000008.png 5 24 38 17 8
+    000009.png 6 27 25 9 1
+    000009.png 4 27 34 14 6
+
+
+
+```python
+
+```
