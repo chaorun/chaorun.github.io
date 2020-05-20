@@ -22,6 +22,7 @@ from IPython import display
 from matplotlib import pyplot as plt
 from collections import OrderedDict
 import sys
+#为了方便，引入自己的包
 sys.path.append('/Users/chaorun/')
 from SoTinShuiLib import *
 
@@ -35,7 +36,7 @@ import torchvision.transforms as transforms
 
 sys.path.append("../Dive-into-DL-PyTorch/code/") # 为了导入上层目录的d2lzh_pytorch
 import d2lzh_pytorch as d2l
-#为了方便，引入自己的包
+
 
 
 
