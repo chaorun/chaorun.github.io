@@ -1,0 +1,152 @@
+---
+layout: post
+title:  "CV 数据扩增方法"
+date:   2020-05-23 16:34:47 +0800
+categories: jekyll update
+---
+# Task2 数据读取与数据扩增
+
+以torchvision为例，常见的数据扩增方法包括：
+
+- transforms.CenterCrop      对图片中心进行裁剪      
+- transforms.ColorJitter      对图像颜色的对比度、饱和度和零度进行变换      
+- transforms.FiveCrop     对图像四个角和中心进行裁剪得到五分图像     
+- transforms.Grayscale      对图像进行灰度变换    
+- transforms.Pad        使用固定值进行像素填充     
+- transforms.RandomAffine      随机仿射变换    
+- transforms.RandomCrop      随机区域裁剪     
+- transforms.RandomHorizontalFlip      随机水平翻转     
+- transforms.RandomRotation     随机旋转     
+- transforms.RandomVerticalFlip     随机垂直翻转   
+
+#### 2.3.3 常用的数据扩增库     
+- #### torchvision      
+https://github.com/pytorch/vision      
+pytorch官方提供的数据扩增库，提供了基本的数据数据扩增方法，可以无缝与torch进行集成；但数据扩增方法种类较少，且速度中等；       
+        
+- #### imgaug         
+https://github.com/aleju/imgaug      
+imgaug是常用的第三方数据扩增库，提供了多样的数据扩增方法，且组合起来非常方便，速度较快；      
+       
+- #### albumentations       
+https://albumentations.readthedocs.io      
+是常用的第三方数据扩增库，提供了多样的数据扩增方法，对图像分类、语义分割、物体检测和关键点检测都支持，速度较快。      
+
+
+```python
+import os, sys, glob, shutil, json
+import cv2
+
+from PIL import Image
+import numpy as np
+
+import torch
+from torch.utils.data.dataset import Dataset
+import torchvision.transforms as transforms
+
+class SVHNDataset(Dataset):
+    def __init__(self, img_path, img_label, transform=None):
+        self.img_path = img_path
+        self.img_label = img_label 
+        if transform is not None:
+            self.transform = transform
+        else:
+            self.transform = None
+
+    def __getitem__(self, index):
+        img = Image.open(self.img_path[index]).convert('RGB')
+
+        if self.transform is not None:
+            img = self.transform(img)
+        
+        # 原始SVHN中类别10为数字0
+        lbl = np.array(self.img_label[index], dtype=np.int)
+        lbl = list(lbl)  + (5 - len(lbl)) * [10]
+        
+        return img, torch.from_numpy(np.array(lbl[:5]))
+
+    def __len__(self):
+        return len(self.img_path)
+
+train_path = glob.glob('../input/train/*.png')
+train_path.sort()
+train_json = json.load(open('../input/train.json'))
+train_label = [train_json[x]['label'] for x in train_json]
+
+data = SVHNDataset(train_path, train_label,
+          transforms.Compose([
+              # 缩放到固定尺寸
+              transforms.Resize((64, 128)),
+
+              # 随机颜色变换
+              transforms.ColorJitter(0.2, 0.2, 0.2),
+
+              # 加入随机旋转
+              transforms.RandomRotation(5),
+
+              # 将图片转换为pytorch 的tesntor
+              # transforms.ToTensor(),
+
+              # 对图像像素进行归一化
+              # transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])
+            ]))
+```    
+
+
+```python
+# 我自己的数据很多是单波段的 1xn x n的array
+
+
+def random_crop(data,ratio=0.2):
+    x_size,y_size=data.shape
+    x_valid_start,x_valid_end=np.int(x_size*ratio),np.int(x_size*(1-ratio))
+    xstart=int(x_valid_start+np.random.random()*(x_valid_end-x_valid_start))
+    xend=int(np.int(x_size*ratio)+xstart)
+    y_valid_start,y_valid_end=np.int(y_size*ratio),np.int(y_size*(1-ratio))
+    ystart=int(y_valid_start+np.random.random()*(y_valid_end-y_valid_start))
+    yend=int(np.int(y_size*ratio)+ystart)
+    data[xstart:xend,ystart:yend]=0
+    return data
+```
+
+
+```python
+# 说起来我不喜欢多张图片的存储方式，
+# 我偏好使用超大的数组
+# 有n个样本，每个样本31*31*4 则直接建立np.zeros([n,31,31,4])的数组
+# 使用fits或者fits table 存储数据
+```
+
+```python
+#举个例子
+newcat=Table()
+newcat.add_columns([cat['CloudStatus_Human'],cat['LABEL'],cat['LABEL1'],Column(data=np.float32(DataArray),name='Data')])
+newcat.add_columns([Column(data=np.array('',dtype='<U100').repeat(len(newcat)),name='Comment')])
+
+ToRotate=newcat[newcat['LABEL1']!=0].copy()
+Good_90=ToRotate.copy()
+for i in range(len(Good_90)):
+    Good_90['Data'][i]=np.rot90(Good_90['Data'][i])
+Good_90['Comment']="Rot90"
+
+Good_180=ToRotate.copy()
+for i in range(len(Good_180)):
+    Good_180['Data'][i]=np.rot90(np.rot90(Good_180['Data'][i]))
+Good_180['Comment']="Rot180"
+
+Good_270=ToRotate.copy()
+for i in range(len(Good_270)):
+    Good_270['Data'][i]=np.rot90(np.rot90(np.rot90(Good_270['Data'][i])))
+Good_270['Comment']="Rot280"
+
+```
+
+
+```python
+
+```
+
+
+```python
+
+```
