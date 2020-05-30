@@ -281,7 +281,7 @@ plt.plot(loss_plot)
 
 
 
-![png](/_posts/output_12_1.png)
+![png](output_12_1.png)
 
 
 
